@@ -144,7 +144,8 @@ Body:
 {
   "resourceKey": "docs/architecture.md",
   "title": "Architecture",
-  "text": "# Introduction\nFCID is persistent identity.\n\n## Scope\nDocument is projection."
+  "text": "# Introduction\nFCID is persistent identity.\n\n## Scope\nDocument is projection.",
+  "parentFcid": "PJ_CORE"
 }
 ```
 
@@ -152,6 +153,7 @@ Campos:
 - `resourceKey` (string, obrigatorio): chave logica do recurso
 - `title` (string, obrigatorio): titulo da projecao
 - `text` (string, obrigatorio): documento bruto em Markdown
+- `parentFcid` (string, opcional): parent deve ser `PJ` ou `DR`; se omitido, o parent vira o `WS`
 - `text` aceita Markdown:
   - headings (`#`, `##`, etc.) viram `SS`
   - blocos de paragrafo viram `PG`
@@ -179,6 +181,55 @@ Exemplo:
 curl -X POST http://localhost:3000/v1/lab01/import/document \
   -H "Content-Type: application/json" \
   -d "{\"resourceKey\":\"docs/architecture.md\",\"title\":\"Architecture\",\"text\":\"# Introduction\nFCID is persistent identity.\n\n## Scope\nDocument is projection.\"}"
+```
+
+### POST `/v1/lab01/import/directory`
+Importa um diretorio criando um artefato `DR` e importa uma lista de documentos como filhos desse diretorio.
+
+Body:
+```json
+{
+  "title": "Architecture",
+  "parentFcid": "PJ_CORE",
+  "documents": [
+    {
+      "resourceKey": "docs/a.md",
+      "title": "Doc A",
+      "text": "# Intro\nA."
+    },
+    {
+      "resourceKey": "docs/b.md",
+      "title": "Doc B",
+      "text": "# Intro\nB."
+    }
+  ]
+}
+```
+
+Campos:
+- `title` (string, obrigatorio): titulo do diretorio (`DR`)
+- `parentFcid` (string, opcional): deve ser `PJ` ou `DR`; se omitido, usa o `WS`
+- `documents` (array, obrigatorio, min 1): mesmo payload do import de documento
+
+Comportamento:
+- se `parentFcid` nao vier, usa o `WS` atual como parent
+- cria `DR` novo
+- cria/importa `DC` dos documentos e relaciona todos ao `DR`
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "directoryFcid": "DR_A1B2C3",
+    "parentFcid": "WS_MAIN",
+    "documents": [
+      {
+        "rootFcid": "DC_D4E5F6",
+        "projectionId": "PROJ_ABCDEFGH"
+      }
+    ]
+  }
+}
 ```
 
 ### POST `/v1/lab01/chat/create`
@@ -488,4 +539,67 @@ Exemplo:
 curl -X POST http://localhost:3000/v1/lab02/project \
   -H "Content-Type: application/json" \
   -d "{\"artifactFcid\":\"DC_KDCK60\",\"targetFormat\":\"markdown\"}"
+```
+
+## 5) Lab 03 - FCAS Resolution
+
+### POST `/v1/lab03/parse`
+Faz parse da sintaxe FCAS para estrutura interpretada.
+
+Body:
+```json
+{
+  "fcas": "[[architecture.md#Introduction]]"
+}
+```
+
+### POST `/v1/lab03/resolve`
+Resolve FCAS para FCID persistente.
+
+Body:
+```json
+{
+  "fcas": "[[::retrieval-chat<2>]]"
+}
+```
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "parsed": {},
+    "targetFcid": "MS_A1B2C3"
+  }
+}
+```
+
+### POST `/v1/lab03/references`
+Cria Reference Artifact persistindo `fcas + target_fcid`.
+
+Body:
+```json
+{
+  "sourceFcid": "CH_8A626C",
+  "fcas": "[[::retrieval-chat<2>]]"
+}
+```
+
+### POST `/v1/lab03/project-fcas`
+Reconstrói FCAS humana a partir de um FCID.
+
+Body:
+```json
+{
+  "targetFcid": "DC_KDCK60"
+}
+```
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "targetFcid": "DC_KDCK60",
+    "fcas": "[[architecture.md]]"
+  }
+}
 ```

@@ -2,13 +2,16 @@ import type { FastifyInstance } from "fastify";
 import {
   addChatMessageSchema,
   createChatSchema,
+  importDirectorySchema,
   importDocumentSchema,
   removeProjectionSchema,
 } from "../../core/lab01Schemas.js";
 import {
   addMessageToChat,
   artifactExplorer,
+  artifactExplorerTree,
   createChat,
+  importDirectory,
   importDocument,
   removeProjection,
   validateProjection,
@@ -20,8 +23,37 @@ export function registerLab01Routes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
-    const result = await importDocument(parsed.data);
-    return { data: result };
+    try {
+      const result = await importDocument(parsed.data);
+      return { data: result };
+    } catch (error) {
+      if (error instanceof Error && error.message === "INVALID_PARENT") {
+        return reply.code(409).send({ error: "Parent must be PJ or DR (or omit for workspace)" });
+      }
+      if (error instanceof Error && error.message === "WORKSPACE_NOT_FOUND") {
+        return reply.code(404).send({ error: "Workspace artifact not found" });
+      }
+      return reply.code(500).send({ error: "Document import failed" });
+    }
+  });
+
+  app.post("/v1/lab01/import/directory", async (request, reply) => {
+    const parsed = importDirectorySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+    try {
+      const result = await importDirectory(parsed.data);
+      return { data: result };
+    } catch (error) {
+      if (error instanceof Error && error.message === "INVALID_PARENT") {
+        return reply.code(409).send({ error: "Parent must be PJ or DR (or omit for workspace)" });
+      }
+      if (error instanceof Error && error.message === "WORKSPACE_NOT_FOUND") {
+        return reply.code(404).send({ error: "Workspace artifact not found" });
+      }
+      return reply.code(500).send({ error: "Directory import failed" });
+    }
   });
 
   app.post("/v1/lab01/chat/create", async (request, reply) => {
@@ -59,6 +91,7 @@ export function registerLab01Routes(app: FastifyInstance): void {
   });
 
   app.get("/v1/lab01/explorer/artifacts", async () => ({ data: await artifactExplorer() }));
+  app.get("/v1/lab01/explorer/tree", async () => ({ data: await artifactExplorerTree() }));
   app.get<{ Params: { fcid: string } }>("/v1/lab01/explorer/artifacts/:fcid", async (request, reply) => {
     const data = await artifactExplorer(request.params.fcid);
     if (!data) return reply.code(404).send({ error: "Artifact not found" });

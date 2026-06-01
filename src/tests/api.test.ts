@@ -13,6 +13,20 @@ afterAll(async () => {
 });
 
 describe("bootstrap API", () => {
+  it("should serve UI root", async () => {
+    const response = await app.inject({ method: "GET", url: "/" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("Context Projection Lab UI");
+  });
+
+  it("should serve UI static asset", async () => {
+    const response = await app.inject({ method: "GET", url: "/ui/styles.css" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/css");
+    expect(response.body).toContain(":root");
+  });
+
   it("health check should return ok", async () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
@@ -53,6 +67,22 @@ describe("bootstrap API", () => {
 
     const explorer = await app.inject({ method: "GET", url: `/v1/lab01/explorer/artifacts/${body.data.rootFcid}` });
     expect(explorer.statusCode).toBe(200);
+    const explorerBody = explorer.json() as { data: { parent: string[] } };
+    expect(explorerBody.data.parent).toContain("WS_MAIN");
+  });
+
+  it("should reject explicit workspace as parent in document import", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "docs/invalid-parent.md",
+        title: "Invalid Parent",
+        text: "# Intro\nText",
+        parentFcid: "WS_MAIN",
+      },
+    });
+    expect(response.statusCode).toBe(409);
   });
 
   it("should create chat and add message", async () => {
@@ -201,5 +231,128 @@ describe("bootstrap API", () => {
       payload: { artifactFcid: "WS_MAIN" },
     });
     expect(projected.statusCode).toBe(409);
+  });
+
+  it("should parse and resolve document FCAS", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "architecture.md",
+        title: "Architecture",
+        text: "# Introduction\nFCAS is human readable.",
+      },
+    });
+    const importBody = imported.json() as { data: { rootFcid: string } };
+
+    const parsed = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/parse",
+      payload: { fcas: "[[architecture.md#Introduction]]" },
+    });
+    expect(parsed.statusCode).toBe(200);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/resolve",
+      payload: { fcas: "[[architecture.md]]" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    const resolvedBody = resolved.json() as { data: { targetFcid: string } };
+    expect(resolvedBody.data.targetFcid).toBe(importBody.data.rootFcid);
+  });
+
+  it("should resolve chat message FCAS and create reference artifact", async () => {
+    const chat = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/chat/create",
+      payload: { resourceKey: "::retrieval-chat-03", title: "Retrieval Chat 03" },
+    });
+    const chatBody = chat.json() as { data: { chatFcid: string } };
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/lab01/chat/${chatBody.data.chatFcid}/messages`,
+      payload: { role: "user", text: "First message." },
+    });
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/resolve",
+      payload: { fcas: "[[::retrieval-chat-03<1>]]" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    const resolvedBody = resolved.json() as { data: { targetFcid: string } };
+    expect(resolvedBody.data.targetFcid).toMatch(/^MS_[A-Z0-9]{6}$/);
+
+    const reference = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/references",
+      payload: { sourceFcid: chatBody.data.chatFcid, fcas: "[[::retrieval-chat-03<1>]]" },
+    });
+    expect(reference.statusCode).toBe(200);
+  });
+
+  it("should project FCID back to FCAS", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "core-architecture.md",
+        title: "Core Architecture",
+        text: "# Introduction\nPersistent identity.",
+      },
+    });
+    const rootFcid = (imported.json() as { data: { rootFcid: string } }).data.rootFcid;
+
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/project-fcas",
+      payload: { targetFcid: rootFcid },
+    });
+    expect(projected.statusCode).toBe(200);
+    const body = projected.json() as { data: { fcas: string } };
+    expect(body.data.fcas).toBe("[[core-architecture.md]]");
+  });
+
+  it("should import directory with documents and default parent workspace", async () => {
+    const resp = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/directory",
+      payload: {
+        title: "Architecture Dir",
+        documents: [
+          {
+            resourceKey: "docs/dir-a.md",
+            title: "Doc A",
+            text: "# Intro\nA sentence.",
+          },
+          {
+            resourceKey: "docs/dir-b.md",
+            title: "Doc B",
+            text: "# Intro\nB sentence.",
+          },
+        ],
+      },
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = resp.json() as {
+      data: {
+        directoryFcid: string;
+        parentFcid: string;
+        documents: Array<{ rootFcid: string }>;
+      };
+    };
+    expect(body.data.directoryFcid).toMatch(/^DR_[A-Z0-9]{6}$/);
+    expect(body.data.parentFcid).toBe("WS_MAIN");
+    expect(body.data.documents.length).toBe(2);
+
+    const dirExplorer = await app.inject({
+      method: "GET",
+      url: `/v1/lab01/explorer/artifacts/${body.data.directoryFcid}`,
+    });
+    expect(dirExplorer.statusCode).toBe(200);
+    const dirBody = dirExplorer.json() as { data: { children: string[] } };
+    expect(dirBody.data.children.length).toBeGreaterThanOrEqual(2);
   });
 });

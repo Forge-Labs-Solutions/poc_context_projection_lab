@@ -13,6 +13,7 @@ export const importDocumentSchema = z.object({
   resourceKey: z.string().min(1),
   title: z.string().min(1),
   text: z.string().min(1),
+  parentFcid: z.string().min(1).optional(),
 });
 
 export const createChatSchema = z.object({
@@ -27,4 +28,10 @@ export const addChatMessageSchema = z.object({
 
 export const removeProjectionSchema = z.object({
   projectionId: z.string().min(1),
+});
+
+export const importDirectorySchema = z.object({
+  title: z.string().min(1),
+  parentFcid: z.string().min(1).optional(),
+  documents: z.array(importDocumentSchema).min(1),
 });

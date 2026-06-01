@@ -92,7 +92,9 @@ export async function importDocument(input: {
   resourceKey: string;
   title: string;
   text: string;
+  parentFcid?: string;
 }): Promise<{ rootFcid: string; projectionId: string }> {
+  const parentFcid = await resolveParentForImport(input.parentFcid);
   const rootFcid = await ensureBinding(input.resourceKey, "DC", "document");
   const projectionId = `PROJ_${randomSuffix(8)}`;
   await db.insert(projections).values({
@@ -103,6 +105,8 @@ export async function importDocument(input: {
     status: "active",
     metadataJson: JSON.stringify({ title: input.title }),
   });
+
+  await link(parentFcid, rootFcid, Date.now());
 
   const markdownSections = parseMarkdownSections(input.text);
   if (markdownSections.length > 0) {
@@ -131,6 +135,42 @@ export async function importDocument(input: {
   }
 
   return { rootFcid, projectionId };
+}
+
+export async function importDirectory(input: {
+  title: string;
+  parentFcid?: string;
+  documents: Array<{ resourceKey: string; title: string; text: string }>;
+}): Promise<{ directoryFcid: string; parentFcid: string; documents: Array<{ rootFcid: string; projectionId: string }> }> {
+  const parentFcid = await resolveParentForImport(input.parentFcid);
+
+  const directoryFcid = await ensureArtifact("DR", { title: input.title });
+  await link(parentFcid, directoryFcid, Date.now());
+
+  const importedDocs: Array<{ rootFcid: string; projectionId: string }> = [];
+  for (const doc of input.documents) {
+    const imported = await importDocument({
+      ...doc,
+      parentFcid: directoryFcid,
+    });
+    importedDocs.push(imported);
+  }
+
+  return { directoryFcid, parentFcid, documents: importedDocs };
+}
+
+async function resolveWorkspaceFcid(): Promise<string> {
+  const ws = await db.select().from(artifacts).where(eq(artifacts.type, "WS")).limit(1);
+  if (!ws[0]) throw new Error("WORKSPACE_NOT_FOUND");
+  return ws[0].fcid;
+}
+
+async function resolveParentForImport(parentFcid?: string): Promise<string> {
+  if (!parentFcid) return resolveWorkspaceFcid();
+  const parent = await db.select().from(artifacts).where(eq(artifacts.fcid, parentFcid)).limit(1);
+  if (!parent[0]) throw new Error("INVALID_PARENT");
+  if (!["PJ", "DR"].includes(parent[0].type)) throw new Error("INVALID_PARENT");
+  return parent[0].fcid;
 }
 
 export async function addMessageToChat(
@@ -259,6 +299,97 @@ export async function artifactExplorer(fcid?: string): Promise<unknown> {
     children: edges.filter((e) => e.parentFcid === n.fcid).map((e) => e.childFcid),
     references: refs.filter((r) => r.sourceFcid === n.fcid),
   }));
+}
+
+type TreeNode = {
+  fcid: string;
+  type: string;
+  category: string;
+  state: string;
+  metadataJson: string | null;
+  parent: string[];
+  references: unknown[];
+  children: TreeNode[];
+};
+
+export async function artifactExplorerTree(): Promise<{ roots: TreeNode[]; stats: { totalNodes: number; rootCount: number } }> {
+  const [nodes, edges, refs] = await Promise.all([
+    db.select().from(artifacts),
+    db.select().from(artifactEdges),
+    db.select().from(referencesTable),
+  ]);
+
+  const nodeByFcid = new Map(nodes.map((n) => [n.fcid, n]));
+  const parentsByChild = new Map<string, string[]>();
+  const refsBySource = new Map<string, unknown[]>();
+  for (const r of refs) {
+    const current = refsBySource.get(r.sourceFcid) ?? [];
+    current.push(r);
+    refsBySource.set(r.sourceFcid, current);
+  }
+
+  const childrenByParent = new Map<string, Array<{ childFcid: string; orderIndex: number }>>();
+  for (const edge of edges) {
+    const children = childrenByParent.get(edge.parentFcid) ?? [];
+    children.push({ childFcid: edge.childFcid, orderIndex: edge.orderIndex });
+    childrenByParent.set(edge.parentFcid, children);
+
+    const parents = parentsByChild.get(edge.childFcid) ?? [];
+    parents.push(edge.parentFcid);
+    parentsByChild.set(edge.childFcid, parents);
+  }
+
+  for (const arr of childrenByParent.values()) {
+    arr.sort((a, b) => a.orderIndex - b.orderIndex);
+  }
+
+  const buildNode = (fcid: string, visiting: Set<string>): TreeNode => {
+    if (visiting.has(fcid)) {
+      const artifact = nodeByFcid.get(fcid);
+      return {
+        fcid,
+        type: artifact?.type ?? "UNKNOWN",
+        category: artifact?.category ?? "structural",
+        state: artifact?.state ?? "active",
+        metadataJson: artifact?.metadataJson ?? null,
+        parent: parentsByChild.get(fcid) ?? [],
+        references: refsBySource.get(fcid) ?? [],
+        children: [],
+      };
+    }
+
+    visiting.add(fcid);
+    const artifact = nodeByFcid.get(fcid);
+    const children = (childrenByParent.get(fcid) ?? [])
+      .filter((edge) => nodeByFcid.has(edge.childFcid))
+      .map((edge) => buildNode(edge.childFcid, visiting));
+    visiting.delete(fcid);
+
+    return {
+      fcid,
+      type: artifact?.type ?? "UNKNOWN",
+      category: artifact?.category ?? "structural",
+      state: artifact?.state ?? "active",
+      metadataJson: artifact?.metadataJson ?? null,
+      parent: parentsByChild.get(fcid) ?? [],
+      references: refsBySource.get(fcid) ?? [],
+      children,
+    };
+  };
+
+  const rootFcids = nodes
+    .filter((node) => (parentsByChild.get(node.fcid) ?? []).length === 0)
+    .map((node) => node.fcid);
+
+  const roots = rootFcids.map((fcid) => buildNode(fcid, new Set<string>()));
+
+  return {
+    roots,
+    stats: {
+      totalNodes: nodes.length,
+      rootCount: roots.length,
+    },
+  };
 }
 
 export async function validateProjection(projectionId: string): Promise<unknown> {
