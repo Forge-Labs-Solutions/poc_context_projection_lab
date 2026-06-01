@@ -420,3 +420,72 @@ GET /v1/lab01/validation/:projectionId
 POST /v1/lab01/projection/remove
 ```
 e depois consultar artifacts novamente no explorer.
+
+## 4) Lab 02 - Projection Engine
+
+### POST `/v1/lab02/project`
+Projeta qualquer artefato suportado (`SN`, `PG`, `SS`, `MS`, `DC`, `CH`) para formato humano.
+
+Body:
+```json
+{
+  "artifactFcid": "DC_KDCK60",
+  "targetFormat": "markdown"
+}
+```
+
+Campos:
+- `artifactFcid` (string, obrigatorio)
+- `targetFormat` (opcional): `markdown | text | json`
+  - default: `markdown`
+
+Resposta `200` (markdown/text):
+```json
+{
+  "data": {
+    "artifactFcid": "DC_KDCK60",
+    "scope": "DC",
+    "targetFormat": "markdown",
+    "content": "# Document title\n\n# Section\n\nParagraph...",
+    "lineageMeta": {
+      "statelessRebuild": true
+    }
+  }
+}
+```
+
+Resposta `200` (json):
+```json
+{
+  "data": {
+    "artifactFcid": "DC_KDCK60",
+    "scope": "DC",
+    "targetFormat": "json",
+    "structured": {},
+    "lineageMeta": {
+      "statelessRebuild": true
+    }
+  }
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Artifact not found"
+}
+```
+
+Resposta `409`:
+```json
+{
+  "error": "Artifact type not projectable in Lab 02"
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/lab02/project \
+  -H "Content-Type: application/json" \
+  -d "{\"artifactFcid\":\"DC_KDCK60\",\"targetFormat\":\"markdown\"}"
+```

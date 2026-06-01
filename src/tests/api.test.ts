@@ -124,4 +124,82 @@ describe("bootstrap API", () => {
     });
     expect(artifactStillThere.statusCode).toBe(200);
   });
+
+  it("should project document in default markdown format", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "docs/project-doc.md",
+        title: "Projection Doc",
+        text: "# Intro\nProjection content sentence.",
+      },
+    });
+    const importBody = imported.json() as { data: { rootFcid: string } };
+
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: importBody.data.rootFcid },
+    });
+    expect(projected.statusCode).toBe(200);
+    const body = projected.json() as { data: { scope: string; targetFormat: string; content: string } };
+    expect(body.data.scope).toBe("DC");
+    expect(body.data.targetFormat).toBe("markdown");
+    expect(body.data.content.length).toBeGreaterThan(0);
+  });
+
+  it("should project same artifact in markdown text and json", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "docs/formats-doc.md",
+        title: "Formats Doc",
+        text: "# Intro\nA. B.",
+      },
+    });
+    const importBody = imported.json() as { data: { rootFcid: string } };
+
+    const markdownResp = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: importBody.data.rootFcid, targetFormat: "markdown" },
+    });
+    const textResp = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: importBody.data.rootFcid, targetFormat: "text" },
+    });
+    const jsonResp = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: importBody.data.rootFcid, targetFormat: "json" },
+    });
+
+    expect(markdownResp.statusCode).toBe(200);
+    expect(textResp.statusCode).toBe(200);
+    expect(jsonResp.statusCode).toBe(200);
+
+    const jsonBody = jsonResp.json() as { data: { structured: unknown } };
+    expect(jsonBody.data.structured).toBeTruthy();
+  });
+
+  it("should return 404 for unknown artifact projection", async () => {
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: "DC_UNKNOWN" },
+    });
+    expect(projected.statusCode).toBe(404);
+  });
+
+  it("should return 409 for unsupported artifact type", async () => {
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: "WS_MAIN" },
+    });
+    expect(projected.statusCode).toBe(409);
+  });
 });
