@@ -1,0 +1,422 @@
+# API Reference
+
+Documentacao completa dos endpoints disponiveis na POC.
+
+## Visao geral
+
+- Base URL local: `http://localhost:3000`
+- Content-Type para requests com body: `application/json`
+- Autenticacao: nao aplicavel nesta fase da POC
+- Formato de resposta:
+  - sucesso: objeto com `data` ou `status`
+  - erro: objeto com `error`
+
+## Convencoes
+
+- FCID: identificador persistente de artefato, formato `TYPE_[A-Z0-9]{6}`
+  - exemplos: `DC_KDCK60`, `CH_8A626C`, `MS_A1B2C3`
+- Projection ID: identificador de projecao, formato `PROJ_[A-Z0-9]{8}`
+- Status HTTP:
+  - `200` sucesso
+  - `400` payload invalido
+  - `404` recurso nao encontrado
+  - `500` erro interno
+
+## 1) Health
+
+### GET `/health`
+Verifica se a API esta ativa.
+
+Resposta `200`:
+```json
+{
+  "status": "ok"
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/health
+```
+
+## 2) Endpoints base
+
+### GET `/v1/artifacts`
+Lista todos os artefatos persistidos.
+
+Resposta `200`:
+```json
+{
+  "data": [
+    {
+      "fcid": "DC_KDCK60",
+      "type": "DC",
+      "category": "structural",
+      "state": "active",
+      "metadataJson": "{\"resourceKey\":\"docs/architecture.md\"}",
+      "createdAt": 1780000000000,
+      "updatedAt": 1780000000000
+    }
+  ]
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/artifacts
+```
+
+### GET `/v1/artifacts/:fcid`
+Retorna um artefato especifico por FCID.
+
+Path params:
+- `fcid` (string, obrigatorio)
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "fcid": "DC_KDCK60",
+    "type": "DC",
+    "category": "structural",
+    "state": "active",
+    "metadataJson": "{\"resourceKey\":\"docs/architecture.md\"}",
+    "createdAt": 1780000000000,
+    "updatedAt": 1780000000000
+  }
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Artifact not found"
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/artifacts/DC_KDCK60
+```
+
+### GET `/v1/graph`
+Retorna o grafo bruto persistido (`nodes` e `edges`).
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "nodes": [],
+    "edges": []
+  }
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/graph
+```
+
+### POST `/v1/seeds/reset`
+Reseta e reaplica o dataset base da POC.
+
+Resposta `200`:
+```json
+{
+  "status": "ok",
+  "message": "Seed reset completed."
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/seeds/reset
+```
+
+## 3) Lab 01 - Artifact Mapping
+
+### POST `/v1/lab01/import/document`
+Importa um documento bruto em Markdown e cria artefatos no formato:
+`DC -> SS -> PG -> SN`.
+
+Body:
+```json
+{
+  "resourceKey": "docs/architecture.md",
+  "title": "Architecture",
+  "text": "# Introduction\nFCID is persistent identity.\n\n## Scope\nDocument is projection."
+}
+```
+
+Campos:
+- `resourceKey` (string, obrigatorio): chave logica do recurso
+- `title` (string, obrigatorio): titulo da projecao
+- `text` (string, obrigatorio): documento bruto em Markdown
+- `text` aceita Markdown:
+  - headings (`#`, `##`, etc.) viram `SS`
+  - blocos de paragrafo viram `PG`
+  - frases viram `SN`
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "rootFcid": "DC_KDCK60",
+    "projectionId": "PROJ_2YGO1FRJ"
+  }
+}
+```
+
+Resposta `400`:
+```json
+{
+  "error": {}
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/lab01/import/document \
+  -H "Content-Type: application/json" \
+  -d "{\"resourceKey\":\"docs/architecture.md\",\"title\":\"Architecture\",\"text\":\"# Introduction\nFCID is persistent identity.\n\n## Scope\nDocument is projection.\"}"
+```
+
+### POST `/v1/lab01/chat/create`
+Cria um chat (`CH`) para uma chave logica.
+
+Body:
+```json
+{
+  "resourceKey": "::retrieval-chat",
+  "title": "Retrieval Chat"
+}
+```
+
+Campos:
+- `resourceKey` (string, obrigatorio)
+- `title` (string, obrigatorio)
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "chatFcid": "CH_8A626C",
+    "projectionId": "PROJ_Q1W2E3R4"
+  }
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/lab01/chat/create \
+  -H "Content-Type: application/json" \
+  -d "{\"resourceKey\":\"::retrieval-chat\",\"title\":\"Retrieval Chat\"}"
+```
+
+### POST `/v1/lab01/chat/:chatFcid/messages`
+Adiciona mensagem em um chat existente.
+
+Path params:
+- `chatFcid` (string, obrigatorio): FCID do chat (`CH_*`)
+
+Body (simples):
+```json
+{
+  "role": "user",
+  "text": "Hello world"
+}
+```
+
+Body com Markdown (secoes no proprio `text`):
+```json
+{
+  "role": "assistant",
+  "text": "# Answer\nSentence 1. Sentence 2.\n\n## Details\nMore details here."
+}
+```
+
+Campos:
+- `role` (enum: `user | assistant | system`, opcional, default `user`)
+- `text` (string, obrigatorio)
+- `text` aceita Markdown:
+  - headings (`#`, `##`, etc.) viram `SS`
+  - blocos de paragrafo viram `PG`
+  - frases viram `SN`
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "messageFcid": "MS_A1B2C3"
+  }
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Chat not found"
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/lab01/chat/CH_8A626C/messages \
+  -H "Content-Type: application/json" \
+  -d "{\"role\":\"user\",\"text\":\"Hello world\"}"
+```
+
+### POST `/v1/lab01/projection/remove`
+Marca uma projecao como removida sem apagar artefatos persistidos.
+
+Body:
+```json
+{
+  "projectionId": "PROJ_2YGO1FRJ"
+}
+```
+
+Campos:
+- `projectionId` (string, obrigatorio)
+
+Resposta `200`:
+```json
+{
+  "status": "ok"
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Projection not found"
+}
+```
+
+Exemplo:
+```bash
+curl -X POST http://localhost:3000/v1/lab01/projection/remove \
+  -H "Content-Type: application/json" \
+  -d "{\"projectionId\":\"PROJ_2YGO1FRJ\"}"
+```
+
+### GET `/v1/lab01/explorer/artifacts`
+Lista artefatos com enriquecimento de:
+- parent (pais)
+- children (filhos)
+- references
+
+Resposta `200`:
+```json
+{
+  "data": [
+    {
+      "fcid": "PG_L2X6Q1",
+      "type": "PG",
+      "category": "structural",
+      "state": "active",
+      "parent": ["SS_R1C9K2"],
+      "children": ["SN_A7K2M9"],
+      "references": []
+    }
+  ]
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/lab01/explorer/artifacts
+```
+
+### GET `/v1/lab01/explorer/artifacts/:fcid`
+Retorna um artefato especifico com relacoes (pai, filhos, referencias).
+
+Path params:
+- `fcid` (string, obrigatorio)
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "fcid": "PG_L2X6Q1",
+    "type": "PG",
+    "category": "structural",
+    "state": "active",
+    "parent": ["SS_R1C9K2"],
+    "children": ["SN_A7K2M9"],
+    "references": []
+  }
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Artifact not found"
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/lab01/explorer/artifacts/PG_L2X6Q1
+```
+
+### GET `/v1/lab01/validation/:projectionId`
+Executa checks basicos de validacao do Lab 01 para uma projecao.
+
+Path params:
+- `projectionId` (string, obrigatorio)
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "projectionId": "PROJ_2YGO1FRJ",
+    "checks": {
+      "hasPersistentRootFcid": true,
+      "separatesStructureAndContent": true,
+      "projectionIsNotSourceOfTruth": true
+    }
+  }
+}
+```
+
+Resposta `404`:
+```json
+{
+  "error": "Projection not found"
+}
+```
+
+Exemplo:
+```bash
+curl http://localhost:3000/v1/lab01/validation/PROJ_2YGO1FRJ
+```
+
+## Fluxo recomendado de uso (Lab 01)
+
+1. Criar chat (quando fluxo conversacional):
+```bash
+POST /v1/lab01/chat/create
+```
+2. Adicionar mensagens no chat:
+```bash
+POST /v1/lab01/chat/:chatFcid/messages
+```
+3. Importar documentos:
+```bash
+POST /v1/lab01/import/document
+```
+4. Inspecionar artefatos:
+```bash
+GET /v1/lab01/explorer/artifacts
+```
+5. Validar projecao:
+```bash
+GET /v1/lab01/validation/:projectionId
+```
+6. Testar independencia de projecao:
+```bash
+POST /v1/lab01/projection/remove
+```
+e depois consultar artifacts novamente no explorer.

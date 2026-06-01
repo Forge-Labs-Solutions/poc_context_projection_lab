@@ -5,6 +5,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const artifacts = sqliteTable("artifacts", {
@@ -88,6 +89,30 @@ export const referencesTable = sqliteTable(
   ],
 );
 
+export const resourceBindings = sqliteTable(
+  "resource_bindings",
+  {
+    bindingId: text("binding_id").primaryKey(),
+    resourceKey: text("resource_key").notNull(),
+    artifactType: text("artifact_type").notNull(),
+    artifactFcid: text("artifact_fcid")
+      .notNull()
+      .references(() => artifacts.fcid, { onDelete: "cascade" }),
+    projectionKind: text("projection_kind").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    index("resource_bindings_resource_idx").on(table.resourceKey),
+    index("resource_bindings_artifact_idx").on(table.artifactFcid),
+    uniqueIndex("resource_bindings_unique_idx").on(table.resourceKey, table.artifactType),
+  ],
+);
+
 export const artifactsRelations = relations(artifacts, ({ many }) => ({
   children: many(artifactEdges),
 }));
@@ -117,6 +142,13 @@ export const referencesRelations = relations(referencesTable, ({ one }) => ({
   }),
   target: one(artifacts, {
     fields: [referencesTable.targetFcid],
+    references: [artifacts.fcid],
+  }),
+}));
+
+export const resourceBindingsRelations = relations(resourceBindings, ({ one }) => ({
+  artifact: one(artifacts, {
+    fields: [resourceBindings.artifactFcid],
     references: [artifacts.fcid],
   }),
 }));

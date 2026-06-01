@@ -5,6 +5,7 @@ import {
   artifacts,
   projections,
   referencesTable,
+  resourceBindings,
 } from "../db/schema.js";
 import {
   seedArtifacts,
@@ -15,6 +16,7 @@ import {
 
 export function resetAndSeed(): void {
   db.transaction((tx) => {
+    tx.delete(resourceBindings).run();
     tx.delete(referencesTable).run();
     tx.delete(projections).run();
     tx.delete(artifactEdges).run();

@@ -47,6 +47,16 @@ npm run dev
 - `GET /v1/artifacts/:fcid`
 - `GET /v1/graph`
 - `POST /v1/seeds/reset`
+- `POST /v1/lab01/import/document`
+- `POST /v1/lab01/chat/create`
+- `POST /v1/lab01/chat/:chatFcid/messages`
+- `POST /v1/lab01/projection/remove`
+- `GET /v1/lab01/explorer/artifacts`
+- `GET /v1/lab01/explorer/artifacts/:fcid`
+- `GET /v1/lab01/validation/:projectionId`
+
+Documentacao basica:
+- `docs/endpoints.md`
 
 ## Exemplos de chamadas
 
