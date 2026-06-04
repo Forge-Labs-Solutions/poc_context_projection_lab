@@ -111,16 +111,7 @@ export async function importDocument(input: {
   const markdownSections = parseMarkdownSections(input.text);
   if (markdownSections.length > 0) {
     for (let s = 0; s < markdownSections.length; s += 1) {
-      const ss = await ensureArtifact("SS", { title: markdownSections[s].title });
-      await link(rootFcid, ss, s);
-      for (let p = 0; p < markdownSections[s].paragraphs.length; p += 1) {
-        const pg = await ensureArtifact("PG");
-        await link(ss, pg, p);
-        for (let n = 0; n < markdownSections[s].paragraphs[p].sentences.length; n += 1) {
-          const sn = await ensureArtifact("SN", { text: markdownSections[s].paragraphs[p].sentences[n] });
-          await link(pg, sn, n);
-        }
-      }
+      await persistSection(markdownSections[s], rootFcid, s);
     }
   } else {
     const paragraphs = parseParagraphsToSentences(input.text);
@@ -188,16 +179,7 @@ export async function addMessageToChat(
   const markdownSections = parseMarkdownSections(input.text);
   if (markdownSections.length > 0) {
     for (let s = 0; s < markdownSections.length; s += 1) {
-      const ss = await ensureArtifact("SS", { title: markdownSections[s].title });
-      await link(msg, ss, s);
-      for (let p = 0; p < markdownSections[s].paragraphs.length; p += 1) {
-        const pg = await ensureArtifact("PG");
-        await link(ss, pg, p);
-        for (let n = 0; n < markdownSections[s].paragraphs[p].sentences.length; n += 1) {
-          const sn = await ensureArtifact("SN", { text: markdownSections[s].paragraphs[p].sentences[n] });
-          await link(pg, sn, n);
-        }
-      }
+      await persistSection(markdownSections[s], msg, s);
     }
   } else {
     const paragraphs = parseParagraphsToSentences(input.text);
@@ -213,15 +195,54 @@ export async function addMessageToChat(
   return { messageFcid: msg };
 }
 
-function parseMarkdownSections(text: string): Array<{ title: string; paragraphs: Array<{ sentences: string[] }> }> {
+type ParsedParagraph = { sentences: string[] };
+type ParsedSectionBlock =
+  | { kind: "paragraph"; paragraph: ParsedParagraph }
+  | { kind: "section"; section: ParsedSection };
+
+type ParsedSection = {
+  title: string;
+  level: number;
+  children: ParsedSectionBlock[];
+};
+
+async function persistSection(section: ParsedSection, parentFcid: string, orderIndex: number): Promise<string> {
+  const ss = await ensureArtifact("SS", { title: section.title, level: section.level });
+  await link(parentFcid, ss, orderIndex);
+
+  for (let i = 0; i < section.children.length; i += 1) {
+    const child = section.children[i];
+    if (child.kind === "section") {
+      await persistSection(child.section, ss, i);
+      continue;
+    }
+
+    const pg = await ensureArtifact("PG");
+    await link(ss, pg, i);
+    for (let n = 0; n < child.paragraph.sentences.length; n += 1) {
+      const sn = await ensureArtifact("SN", { text: child.paragraph.sentences[n] });
+      await link(pg, sn, n);
+    }
+  }
+
+  return ss;
+}
+
+function parseMarkdownSections(text: string): ParsedSection[] {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const sections: Array<{ title: string; paragraphs: string[] }> = [];
-  let current: { title: string; paragraphs: string[] } | null = null;
+  const roots: ParsedSection[] = [];
+  const stack: ParsedSection[] = [];
   let buffer: string[] = [];
 
   const flushParagraph = (): void => {
     const paragraph = buffer.join(" ").trim();
-    if (paragraph.length > 0 && current) current.paragraphs.push(paragraph);
+    const current = stack[stack.length - 1];
+    if (paragraph.length > 0 && current) {
+      current.children.push({
+        kind: "paragraph",
+        paragraph: { sentences: splitSentences(paragraph) },
+      });
+    }
     buffer = [];
   };
 
@@ -230,11 +251,27 @@ function parseMarkdownSections(text: string): Array<{ title: string; paragraphs:
     const heading = line.match(/^#{1,6}\s+(.+)$/);
     if (heading) {
       flushParagraph();
-      if (current) sections.push(current);
-      current = { title: heading[1].trim(), paragraphs: [] };
+      const level = rawLine.match(/^#{1,6}/)?.[0].length ?? 1;
+      const section: ParsedSection = {
+        title: heading[1].trim(),
+        level,
+        children: [],
+      };
+
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
+        stack.pop();
+      }
+
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.children.push({ kind: "section", section });
+      } else {
+        roots.push(section);
+      }
+      stack.push(section);
       continue;
     }
-    if (!current) continue;
+    if (stack.length === 0) continue;
     if (line.length === 0) {
       flushParagraph();
       continue;
@@ -243,12 +280,7 @@ function parseMarkdownSections(text: string): Array<{ title: string; paragraphs:
   }
 
   flushParagraph();
-  if (current) sections.push(current);
-
-  return sections.map((s) => ({
-    title: s.title,
-    paragraphs: s.paragraphs.map((p) => ({ sentences: splitSentences(p) })),
-  }));
+  return roots;
 }
 
 function parseParagraphsToSentences(text: string): string[][] {

@@ -215,6 +215,70 @@ describe("bootstrap API", () => {
     expect(jsonBody.data.structured).toBeTruthy();
   });
 
+  it("should project paragraph sentences as a single markdown paragraph", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "docs/paragraph-doc.md",
+        title: "Paragraph Doc",
+        text: "# Intro\nFirst sentence. Second sentence. Third sentence.",
+      },
+    });
+    const rootFcid = (imported.json() as { data: { rootFcid: string } }).data.rootFcid;
+
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: rootFcid, targetFormat: "markdown" },
+    });
+
+    expect(projected.statusCode).toBe(200);
+    const body = projected.json() as { data: { content: string } };
+    expect(body.data.content).toContain("First sentence. Second sentence. Third sentence.");
+    expect(body.data.content).not.toContain("First sentence.\n\nSecond sentence.");
+  });
+
+  it("should preserve nested sections as SS children and project heading levels", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "docs/nested-sections.md",
+        title: "Nested Sections",
+        text: "# Parent\nParent paragraph.\n\n## Child\nChild paragraph.",
+      },
+    });
+    const rootFcid = (imported.json() as { data: { rootFcid: string } }).data.rootFcid;
+
+    const explorer = await app.inject({
+      method: "GET",
+      url: `/v1/lab01/explorer/artifacts/${rootFcid}`,
+    });
+    const explorerBody = explorer.json() as { data: { children: string[] } };
+    expect(explorerBody.data.children.length).toBe(1);
+
+    const parentSectionFcid = explorerBody.data.children[0];
+    const parentSection = await app.inject({
+      method: "GET",
+      url: `/v1/lab01/explorer/artifacts/${parentSectionFcid}`,
+    });
+    const parentBody = parentSection.json() as { data: { children: string[] } };
+    expect(parentBody.data.children.length).toBeGreaterThanOrEqual(2);
+
+    const nestedSectionFcid = parentBody.data.children.find((childFcid) => childFcid.startsWith("SS_"));
+    expect(nestedSectionFcid).toBeTruthy();
+
+    const projected = await app.inject({
+      method: "POST",
+      url: "/v1/lab02/project",
+      payload: { artifactFcid: rootFcid, targetFormat: "markdown" },
+    });
+    const projectedBody = projected.json() as { data: { content: string } };
+    expect(projectedBody.data.content).toContain("# Parent");
+    expect(projectedBody.data.content).toContain("## Child");
+  });
+
   it("should return 404 for unknown artifact projection", async () => {
     const projected = await app.inject({
       method: "POST",
@@ -260,6 +324,28 @@ describe("bootstrap API", () => {
     expect(resolved.statusCode).toBe(200);
     const resolvedBody = resolved.json() as { data: { targetFcid: string } };
     expect(resolvedBody.data.targetFcid).toBe(importBody.data.rootFcid);
+  });
+
+  it("should resolve nested section FCAS to child section", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/v1/lab01/import/document",
+      payload: {
+        resourceKey: "nested-resolution.md",
+        title: "Nested Resolution",
+        text: "# Parent\nParent paragraph.\n\n## Child\nChild paragraph.",
+      },
+    });
+    expect(imported.statusCode).toBe(200);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/v1/lab03/resolve",
+      payload: { fcas: "[[nested-resolution.md#Child]]" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    const resolvedBody = resolved.json() as { data: { targetFcid: string } };
+    expect(resolvedBody.data.targetFcid).toMatch(/^SS_[A-Z0-9]{6}$/);
   });
 
   it("should resolve chat message FCAS and create reference artifact", async () => {

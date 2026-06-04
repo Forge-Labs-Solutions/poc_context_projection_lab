@@ -24,8 +24,14 @@ export function resetAndSeed(): void {
 
     tx.insert(artifacts).values(seedArtifacts).run();
     tx.insert(artifactEdges).values(seedEdges).run();
-    tx.insert(projections).values(seedProjections).run();
-    tx.insert(referencesTable).values(seedReferences).run();
+
+    if (seedProjections.length > 0) {
+      tx.insert(projections).values(seedProjections).run();
+    }
+
+    if (seedReferences.length > 0) {
+      tx.insert(referencesTable).values(seedReferences).run();
+    }
   });
 }
 

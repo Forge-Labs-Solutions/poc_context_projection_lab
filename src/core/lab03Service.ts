@@ -71,21 +71,37 @@ async function findBinding(resourceKey: string, artifactType: string): Promise<s
 }
 
 async function resolveSectionFromDocument(dcFcid: string, title: string): Promise<string | null> {
-  const sectionEdges = await db.select().from(artifactEdges).where(eq(artifactEdges.parentFcid, dcFcid));
-  if (sectionEdges.length === 0) return null;
-  const sectionIds = sectionEdges.map((e) => e.childFcid);
-  const nodes = await db.select().from(artifacts);
-  const sections = nodes.filter((n) => sectionIds.includes(n.fcid) && n.type === "SS");
+  const [edges, nodes] = await Promise.all([
+    db.select().from(artifactEdges),
+    db.select().from(artifacts),
+  ]);
+  const nodesMap = new Map(nodes.map((n) => [n.fcid, n]));
+  const childrenByParent = new Map<string, string[]>();
+  for (const edge of edges) {
+    const children = childrenByParent.get(edge.parentFcid) ?? [];
+    children.push(edge.childFcid);
+    childrenByParent.set(edge.parentFcid, children);
+  }
+
   const normalized = title.trim().toLowerCase();
-  for (const ss of sections) {
-    try {
-      const meta = ss.metadataJson ? (JSON.parse(ss.metadataJson) as Record<string, unknown>) : {};
-      const t = String(meta.title ?? "").trim().toLowerCase();
-      if (t === normalized) return ss.fcid;
-    } catch {
-      // ignore bad metadata
+  const queue = [...(childrenByParent.get(dcFcid) ?? [])];
+
+  while (queue.length > 0) {
+    const currentFcid = queue.shift() ?? "";
+    const node = nodesMap.get(currentFcid);
+    if (!node) continue;
+    if (node.type === "SS") {
+      try {
+        const meta = node.metadataJson ? (JSON.parse(node.metadataJson) as Record<string, unknown>) : {};
+        const t = String(meta.title ?? "").trim().toLowerCase();
+        if (t === normalized) return node.fcid;
+      } catch {
+        // ignore bad metadata
+      }
+      queue.push(...(childrenByParent.get(node.fcid) ?? []));
     }
   }
+
   return null;
 }
 
@@ -176,8 +192,10 @@ export async function projectFcidToFcas(targetFcid: string): Promise<string> {
     if (binding[0]) return `[[${binding[0].resourceKey}]]`;
   }
   if (artifact.type === "SS") {
-    const parentEdge = await db.select().from(artifactEdges).where(eq(artifactEdges.childFcid, artifact.fcid)).limit(1);
-    if (parentEdge[0]) {
+    let currentFcid = artifact.fcid;
+    while (true) {
+      const parentEdge = await db.select().from(artifactEdges).where(eq(artifactEdges.childFcid, currentFcid)).limit(1);
+      if (!parentEdge[0]) break;
       const dcBinding = await db.select().from(resourceBindings).where(eq(resourceBindings.artifactFcid, parentEdge[0].parentFcid)).limit(1);
       if (dcBinding[0]) {
         const title = (() => {
@@ -190,6 +208,7 @@ export async function projectFcidToFcas(targetFcid: string): Promise<string> {
         })();
         return `[[${dcBinding[0].resourceKey}#${title}]]`;
       }
+      currentFcid = parentEdge[0].parentFcid;
     }
   }
   if (artifact.type === "MS") {

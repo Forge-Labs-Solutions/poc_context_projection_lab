@@ -80,7 +80,7 @@ function projectPG(
     structured.push(sn.json);
   }
   return {
-    markdown: sentences.join("\n\n"),
+    markdown: sentences.join(" "),
     text: sentences.join(" "),
     json: { type: "PG", fcid: node.fcid, sentences: structured },
   };
@@ -93,24 +93,38 @@ function projectSS(
 ): { markdown: string; text: string; json: unknown } {
   const metadata = parseMetadataJson(node.metadataJson);
   const title = String(metadata.title ?? "Untitled Section");
+  const level = Number(metadata.level ?? 1);
   const edges = childrenMap.get(node.fcid) ?? [];
   const paragraphs = [];
+  const sections = [];
+  const children = [];
   const markdownParts: string[] = [`# ${title}`];
   const textParts: string[] = [title];
 
   for (const edge of edges) {
     const child = nodesMap.get(edge.childFcid);
-    if (!child || child.type !== "PG") continue;
-    const pg = projectPG(child, nodesMap, childrenMap);
-    paragraphs.push(pg.json);
-    if (pg.markdown.length > 0) markdownParts.push(pg.markdown);
-    if (pg.text.length > 0) textParts.push(pg.text);
+    if (!child) continue;
+    if (child.type === "PG") {
+      const pg = projectPG(child, nodesMap, childrenMap);
+      paragraphs.push(pg.json);
+      children.push(pg.json);
+      if (pg.markdown.length > 0) markdownParts.push(pg.markdown);
+      if (pg.text.length > 0) textParts.push(pg.text);
+      continue;
+    }
+    if (child.type === "SS") {
+      const ss = projectSS(child, nodesMap, childrenMap);
+      sections.push(ss.json);
+      children.push(ss.json);
+      if (ss.markdown.length > 0) markdownParts.push(ss.markdown);
+      if (ss.text.length > 0) textParts.push(ss.text);
+    }
   }
 
   return {
-    markdown: markdownParts.join("\n\n"),
+    markdown: [`${"#".repeat(Math.min(Math.max(level, 1), 6))} ${title}`, ...markdownParts.slice(1)].join("\n\n"),
     text: textParts.join("\n\n"),
-    json: { type: "SS", fcid: node.fcid, title, paragraphs },
+    json: { type: "SS", fcid: node.fcid, title, level, paragraphs, sections, children },
   };
 }
 

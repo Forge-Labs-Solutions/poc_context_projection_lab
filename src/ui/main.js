@@ -114,8 +114,8 @@ async function loadTree() {
   state.treeRoots = tree.roots || [];
   state.treeFlat = flattenTree(state.treeRoots);
   if (!state.selectedProjectFcid) {
-    const project = state.treeFlat.find((n) => n.type === "PJ");
-    state.selectedProjectFcid = project ? project.fcid : null;
+    const workspace = state.treeFlat.find((n) => n.type === "WS");
+    state.selectedProjectFcid = workspace ? workspace.fcid : null;
   }
   for (const n of state.treeFlat) if (n.type === "WS" || n.type === "PJ") state.expandedNodes.add(n.fcid);
 }
@@ -363,16 +363,19 @@ function renderFcas() {
 }
 
 function renderDocumentModal() {
-  const directoryOptions = state.treeFlat
-    .filter((n) => n.type === "DR")
-    .map((n) => `<option value="${n.fcid}">${n.fcid}</option>`)
+  const parentOptions = state.treeFlat
+    .filter((n) => n.type === "PJ" || n.type === "DR")
+    .map((n) => `<option value="${n.fcid}">${n.fcid} (${n.type})</option>`)
     .join("");
 
-  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>${state.modal === "import-directory" ? "Import Directory" : state.modal === "create-chat" ? "Create Chat" : "Import Document"}</h2><button id="close-modal">Close</button></div>${state.modal === "import-directory" ? `<section><label>Name</label><input id="dir-title" placeholder="Docs Dir" /><label>Parent Directory</label><select id="dir-parent"><option value="">Workspace (default)</option>${directoryOptions}</select><label>Directory Uploader (.md/.txt)</label><input id="dir-files" type="file" accept=".md,.txt,text/markdown,text/plain" webkitdirectory directory multiple /><label>Documents (JSON array)</label><textarea id="dir-docs" placeholder='[{"resourceKey":"docs/a.md","title":"A","text":"# Intro\\nA."}]'></textarea><button id="dir-submit">Import directory</button></section>` : state.modal === "create-chat" ? `<section><label>Chat Key</label><input id="chat-key" placeholder="::retrieval-chat" /><label>Title</label><input id="chat-title" placeholder="Retrieval Chat" /><button id="chat-submit">Create chat</button></section>` : `<section><label>Directory</label><select id="doc-parent"><option value="">Workspace (default)</option>${directoryOptions}</select><label>Uploader (.md/.txt)</label><input id="doc-file" type="file" accept=".md,.txt,text/markdown,text/plain" /><label>Name</label><input id="doc-title" placeholder="Architecture" /><label>Resource Key</label><input id="doc-resource" placeholder="docs/architecture.md" /><label>Markdown</label><textarea id="doc-markdown" placeholder="# Intro&#10;Text."></textarea><button id="doc-submit">Import document</button></section>`}</div></div>`;
+  return `<div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>${state.modal === "import-directory" ? "Import Directory" : state.modal === "create-chat" ? "Create Chat" : "Import Document"}</h2><button id="close-modal">Close</button></div>${state.modal === "import-directory" ? `<section><label>Name</label><input id="dir-title" placeholder="Docs Dir" /><label>Parent (Project or Directory)</label><select id="dir-parent"><option value="">Workspace (default)</option>${parentOptions}</select><label>Directory Uploader (.md/.txt)</label><input id="dir-files" type="file" accept=".md,.txt,text/markdown,text/plain" webkitdirectory directory multiple /><label>Documents (JSON array)</label><textarea id="dir-docs" placeholder='[{"resourceKey":"docs/a.md","title":"A","text":"# Intro\\nA."}]'></textarea><button id="dir-submit">Import directory</button></section>` : state.modal === "create-chat" ? `<section><label>Chat Key</label><input id="chat-key" placeholder="::retrieval-chat" /><label>Title</label><input id="chat-title" placeholder="Retrieval Chat" /><button id="chat-submit">Create chat</button></section>` : `<section><label>Parent (Project or Directory)</label><select id="doc-parent"><option value="">Workspace (default)</option>${parentOptions}</select><label>Uploader (.md/.txt)</label><input id="doc-file" type="file" accept=".md,.txt,text/markdown,text/plain" /><label>Name</label><input id="doc-title" placeholder="Architecture" /><label>Resource Key</label><input id="doc-resource" placeholder="docs/architecture.md" /><label>Markdown</label><textarea id="doc-markdown" placeholder="# Intro&#10;Text."></textarea><button id="doc-submit">Import document</button></section>`}</div></div>`;
 }
 
 function projectOptions() {
-  return state.treeFlat.filter((n) => n.type === "PJ").map((p) => `<option value="${p.fcid}" ${state.selectedProjectFcid === p.fcid ? "selected" : ""}>${p.fcid}</option>`).join("");
+  return state.treeFlat
+    .filter((n) => n.type === "WS" || n.type === "PJ")
+    .map((node) => `<option value="${node.fcid}" ${state.selectedProjectFcid === node.fcid ? "selected" : ""}>${node.type === "WS" ? `${node.fcid} (workspace)` : node.fcid}</option>`)
+    .join("");
 }
 
 async function selectFcid(fcid) {

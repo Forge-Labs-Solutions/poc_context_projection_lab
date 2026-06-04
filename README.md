@@ -38,7 +38,7 @@ npm run dev
 - `npm run test`: roda testes automatizados.
 - `npm run db:generate`: gera migration com Drizzle.
 - `npm run db:migrate`: aplica migrations no SQLite.
-- `npm run seed`: reseta e popula dataset base.
+- `npm run seed`: reseta e popula dataset base (`WS_MAIN` + 2 projetos).
 
 ## Endpoints
 
