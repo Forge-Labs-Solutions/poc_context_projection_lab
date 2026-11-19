@@ -839,6 +839,8 @@ evolves_from: MS_A
 
 O MS_B ocupa a posição do MS_A no chat.
 
+O conteúdo do MS_A (seus PG e SN) também passa a `superseded` (ADR-015): continua legível pelo FCID do MS_A, mas deixa de poder ser editado e de entrar em qualquer sorteio ou montagem.
+
 `[[::chat<2>]]` passa a resolver para MS_B.
 
 ---
@@ -1157,6 +1159,7 @@ C13  referência para SN superseded resolve para o descendente (evolved: true)
 C14  referência para SN dividido retorna candidatos
 C15  classificador: correção de digitação → edit
 C16  classificador: "now" → "not" sugere edit (limitação registrada)
+C17  regenerate substitui toda a subárvore da mensagem (ADR-015)
 ```
 
 ---

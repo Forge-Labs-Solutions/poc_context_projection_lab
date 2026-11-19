@@ -644,3 +644,97 @@ Aceita
 A reproducao e garantida enquanto o pool nao mudar. mulberry32 nao e criptografico e serve apenas a reproducao.
 
 Aprovada e implementada em 2026-11-19 (EXP-010). `random.poolSize` e o tamanho do pool depois do filtro de `scope`. O filtro de estado `active` e necessario mesmo com a montagem seguindo o lineage: sem ele um artefato substituido seria sorteado e aparece no manifest como o seu substituto, possivelmente duplicado. Um artefato substituido ja sai de qualquer `scope`, pois nao tem pai estrutural.
+
+Correcao de 2026-11-19 (ADR-015, EXP-011): a afirmacao "artefatos substituidos nunca entram no pool" valia apenas para o MS. Os filhos de um MS regenerado continuavam `active` e eram sorteados (defeito D1 da revisao de conformidade). Corrigido na ADR-015 e coberto pelo teste C23 para SN, PG e MS.
+
+# ADR-015 - Regenerate substitui toda a subarvore da mensagem
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 04 - Evolution & Lineage  
+Lab 06 - Synthetic Projection
+
+## Contexto
+
+A revisao de conformidade (`docs/06. evolucao-e-roadmap/revisao_poc_2026-11-19.md`, D1) mostrou que `POST /v1/lab04/regenerate` marcava como `superseded` apenas o MS. O PG e o SN dele continuavam `active` e ligados a ele. Verificado executando: o sorteio do Lab 06 sorteou "Stale answer sentence." de uma mensagem ja substituida, e esses artefatos ainda podiam ser editados. Split e merge nao tem o problema, porque esvaziam o artefato antigo (`rewriteChildren`).
+
+## Decisao
+
+- Ao regenerar, o MS e todos os seus descendentes (pelas arestas `contains`) passam a `superseded` na mesma transacao.
+- As arestas do MS antigo para os seus filhos sao mantidas: a projecao do MS antigo por FCID continua mostrando o conteudo antigo, como historico.
+- O evento `regenerate` guarda a lista `descendants` em `before`.
+- Invariante: um artefato `active` nunca esta abaixo de um ancestral `superseded`.
+
+## Alternativas consideradas
+
+- Esvaziar o MS antigo, como split e merge fazem (perderia a leitura do historico por FCID)
+- Manter o estado como estava e excluir os descendentes de substituidos apenas no pool do Lab 06 (deixaria o estado inconsistente e exigiria o mesmo filtro em cada consumidor futuro)
+
+## Motivo
+
+Corrige a causa, nao um sintoma: o estado do conteudo passa a refletir o estado do container, e todos os consumidores (pool do Lab 06, bloqueio de edicao do Lab 04, resolucao de referencias) herdam o comportamento correto.
+
+## Impacto
+
+- Evolution & Lineage: operar sobre um SN ou PG de uma mensagem regenerada retorna 409 `SUPERSEDED`.
+- FCAS Resolution: uma referencia para um SN ou PG dentro de uma mensagem regenerada nao tem descendente ativo e passa a `orphaned` (antes resolvia para o texto antigo). `[[SN_antigo]]` deixa de resolver.
+- Synthetic Projection: o pool aleatorio volta a conter apenas conteudo atual.
+- Projection Engine e Context Assembly: nenhuma mudanca.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Complementa a ADR-004 e a ADR-005 (o que e `superseded` sai do grafo e dos consumidores) e corrige o alcance da afirmacao da ADR-014. Coberta pelos testes C17 (Lab 04) e C23 (Lab 06). Dados ja gravados antes da correcao nao sao reparados: mensagens regeneradas antes dela ainda tem filhos `active`.
+
+# ADR-016 - Texto antes do primeiro titulo vira PG do documento ou da mensagem
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping  
+Lab 02 - Projection Engine
+
+## Contexto
+
+A revisao de conformidade (D2) mostrou que `parseMarkdownSections` descartava em silencio o texto que vem antes do primeiro titulo quando o documento tem algum titulo: importar "Preface before any heading.\n\n# Heading\n\nBody text." guardava apenas "Body text.". O mesmo vale para mensagens de chat. Alem disso, `projectMS` so renderizava os PG quando a mensagem nao tinha nenhuma SS.
+
+## Decisao
+
+- O texto antes do primeiro titulo e persistido como PG filhos diretos do DC ou do MS, em ordem (`orderIndex` 0 a n-1), seguidos das SS (a partir de n).
+- `projectMS` passa a renderizar SS e PG na ordem das arestas. Para mensagens so com PG ou so com SS, a saida e a mesma de antes. O `projectDC` ja fazia isso (ADR-010).
+- Documentos e mensagens sem nenhum titulo continuam no caminho existente (DC ou MS com PG diretos).
+- O Lab 05 conta o texto introdutorio como o primeiro filho da janela (`range`).
+
+## Alternativas consideradas
+
+- Uma SS implicita para o texto introdutorio (inventaria um titulo e mudaria a resolucao de `[[doc#Secao]]`)
+- Manter o descarte e documentar a limitacao
+- Rejeitar a importacao de texto com conteudo antes do primeiro titulo
+
+## Motivo
+
+Descartar conteudo em silencio contradiz o Lab 01 (conteudo cognitivo independente da projecao). PG direto reaproveita um formato que o Lab 01 ja gera para texto sem titulos e que o `projectDC` ja projeta, sem inventar artefato nem titulo.
+
+## Impacto
+
+- Artifact Mapping: documentos e mensagens importados a partir de agora ganham PG antes das SS. O que ja foi importado nao muda.
+- Projection Engine: mudanca aditiva em `projectMS`.
+- FCAS Resolution: nenhuma mudanca; PG direto nao tem titulo e nao e alvo de `[[doc#Secao]]`.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Coberta pelos testes de api.test.ts ("text before the first heading"). Nao corrige dados ja importados: o texto descartado antes nao volta, e reimportar o mesmo `resourceKey` duplica a arvore (D7). O defeito D3 (documento sem nenhum titulo nao gera SS) segue aberto.

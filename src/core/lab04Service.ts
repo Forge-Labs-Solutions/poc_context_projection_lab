@@ -115,6 +115,23 @@ function orderedChildren(tx: Tx, parentFcid: string): string[] {
     .map((e) => e.childFcid);
 }
 
+/** Every artifact below `rootFcid` through `contains` edges, parents before children. */
+function subtreeOf(tx: Tx, rootFcid: string): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>([rootFcid]);
+  const queue = [rootFcid];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    for (const child of orderedChildren(tx, current)) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      result.push(child);
+      queue.push(child);
+    }
+  }
+  return result;
+}
+
 /** Replaces all `contains` children of a parent, renumbering orderIndex from 0. */
 function rewriteChildren(tx: Tx, parentFcid: string, childFcids: string[]): void {
   tx.delete(artifactEdges)
@@ -469,9 +486,20 @@ export async function regenerateMessage(input: { fcid: string; text: string }): 
   return db.transaction((tx) => {
     const row = getActive(tx, input.fcid);
     const previousChildren = orderedChildren(tx, row.fcid);
+    // Unlike split and merge, regenerate leaves the old content attached to the old message. It must be
+    // superseded with it, or those sentences stay active (ADR-015): they would be drawn by the Lab 06 pool
+    // and could still be edited.
+    const descendants = subtreeOf(tx, row.fcid);
     replaceInParent(tx, [row.fcid], [fcid]);
-    supersede(tx, [row.fcid]);
-    const eventId = recordEvent(tx, "regenerate", [row.fcid], [fcid], { role, children: previousChildren }, { role, text: input.text });
+    supersede(tx, [row.fcid, ...descendants]);
+    const eventId = recordEvent(
+      tx,
+      "regenerate",
+      [row.fcid],
+      [fcid],
+      { role, children: previousChildren, descendants },
+      { role, text: input.text },
+    );
     addLineage(tx, fcid, row.fcid, "evolves_from", eventId);
     return { fcid, supersededFcid: row.fcid, eventId };
   });

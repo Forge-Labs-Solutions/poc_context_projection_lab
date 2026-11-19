@@ -608,3 +608,64 @@ Validado por implementacao e cobertura automatizada
 - Cada item chama o Assembly Engine, que carrega o grafo inteiro: uma sintese de N itens carrega o grafo N vezes. Sem cache.
 - A reproducao por seed vale enquanto o pool nao muda; apos uma evolucao (Lab 04) a mesma seed pode sortear diferente.
 - Debitos herdados e fora do escopo: titulo do DC sempre "Untitled Document" e resolucao de `[[Diretorio]]` e `[[$Projeto]]` que ignora o nome.
+
+# EXP-011 - Validacao das correcoes D1 (regenerate) e D2 (texto antes do primeiro titulo)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping  
+Lab 02 - Projection Engine  
+Lab 04 - Evolution & Lineage  
+Lab 06 - Synthetic Projection
+
+## Hipotese
+
+Superseder a subarvore da mensagem regenerada (ADR-015) e persistir o texto antes do primeiro titulo (ADR-016) corrigem os defeitos D1 e D2 da revisao de conformidade sem alterar o comportamento dos demais fluxos.
+
+## Procedimento
+
+1. Escrever primeiro os testes de regressao e confirmar que falham: C17 (Lab 04), C23 (Lab 06) e quatro testes de "text before the first heading" (api.test.ts).
+2. Corrigir `regenerateMessage` (`lab04Service.ts`), o parser e a persistencia do corpo markdown (`lab01Service.ts`) e `projectMS` (`projectionService.ts`).
+3. Executar `npx vitest run` contra uma copia do banco, com `tsc --noEmit` e `npm run build`.
+4. Teste de mutacao, uma por correcao: (MA) regenerate volta a superseder so o MS; (MB) o parser volta a descartar o texto introdutorio; (MC) `projectMS` volta a ignorar PG quando ha SS.
+
+## Entrada
+
+- Chat com uma pergunta e uma resposta regenerada; referencia criada para a sentenca da resposta antiga antes da regeneracao.
+- Documentos e mensagens com um ou varios paragrafos antes do primeiro titulo.
+
+## Resultado observado
+
+- Antes das correcoes: exatamente os 6 testes novos falhavam; os 85 anteriores passavam.
+- Depois: 91 de 91 testes; `tsc --noEmit` e build sem erro.
+- Regenerate: MS, PG e SN antigos ficam `superseded`; os novos, `active`. A projecao do MS antigo por FCID ainda mostra o texto antigo; a projecao do chat mostra so o novo. Editar o SN antigo retorna 409 `SUPERSEDED`. A referencia criada antes passa a `orphaned`. O sorteio de SN, PG e MS (pool pequeno, inteiro sorteado) nao traz o conteudo antigo.
+- Texto introdutorio: um ou varios paragrafos antes do primeiro titulo aparecem na projecao do documento e da mensagem, antes das secoes; o JSON traz `paragraphs` e `sections`; no Lab 05 o preambulo e o primeiro filho da janela (`range 1..1`) e a primeira secao passa a ser o segundo.
+- Mutacao MA: falharam C17 e C23. Mutacao MB: falharam os 4 testes de texto introdutorio. Mutacao MC: falhou apenas "keeps a preface in a chat message", o que confirma que a mudanca em `projectMS` era necessaria. Todos os arquivos foram restaurados identicos.
+
+## Resultado esperado
+
+Nenhum conteudo ativo abaixo de um artefato substituido; nenhum texto descartado na importacao; todos os demais testes inalterados.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/core/lab04Service.ts` (`subtreeOf`, `regenerateMessage`), `src/core/lab01Service.ts` (`parseMarkdownSections`, `persistMarkdownBody`), `src/core/projectionService.ts` (`projectMS`).
+- `src/tests/lab04.test.ts` (C17), `src/tests/lab06.test.ts` (C23), `src/tests/api.test.ts`.
+
+## Decisoes derivadas
+
+- ADR-015
+- ADR-016
+
+## Pendencias
+
+- Dados gravados antes das correcoes nao sao reparados: mensagens regeneradas antes ainda tem filhos `active`, e o texto descartado antes nao volta.
+- Defeitos D3 a D8 da revisao seguem abertos (documento sem titulos sem SS, chat sem pai, resolver ignorando nomes, `[[::chat<1-3>]]`, reimportacao, verificacoes que sempre passam).
+- O EXP-010 afirmou que o filtro de estado bastava para manter substituidos fora do sorteio. A mutacao daquele experimento so cobria o tipo MS; a afirmacao so passou a valer para SN e PG com a ADR-015.

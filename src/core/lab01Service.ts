@@ -108,12 +108,7 @@ export async function importDocument(input: {
 
   await link(parentFcid, rootFcid, Date.now());
 
-  const markdownSections = parseMarkdownSections(input.text);
-  if (markdownSections.length > 0) {
-    for (let s = 0; s < markdownSections.length; s += 1) {
-      await persistSection(markdownSections[s], rootFcid, s);
-    }
-  } else {
+  if (!(await persistMarkdownBody(rootFcid, input.text))) {
     const paragraphs = parseParagraphsToSentences(input.text);
     for (let p = 0; p < paragraphs.length; p += 1) {
       const pg = await ensureArtifact("PG");
@@ -180,13 +175,7 @@ export async function addMessageToChat(
 }
 
 export async function persistMessageContent(msgFcid: string, text: string): Promise<void> {
-  const markdownSections = parseMarkdownSections(text);
-  if (markdownSections.length > 0) {
-    for (let s = 0; s < markdownSections.length; s += 1) {
-      await persistSection(markdownSections[s], msgFcid, s);
-    }
-    return;
-  }
+  if (await persistMarkdownBody(msgFcid, text)) return;
   const paragraphs = parseParagraphsToSentences(text);
   for (let p = 0; p < paragraphs.length; p += 1) {
     const pg = await ensureArtifact("PG");
@@ -208,6 +197,32 @@ type ParsedSection = {
   level: number;
   children: ParsedSectionBlock[];
 };
+
+/**
+ * Persists a markdown body under a DC or MS: text before the first heading becomes PG children, in order,
+ * followed by one SS per top-level heading (ADR-016). Returns false when the text has no headings, so the
+ * caller maps it as plain paragraphs.
+ */
+async function persistMarkdownBody(parentFcid: string, text: string): Promise<boolean> {
+  const { preamble, sections } = parseMarkdownSections(text);
+  if (sections.length === 0) return false;
+
+  let orderIndex = 0;
+  for (const paragraph of preamble) {
+    const pg = await ensureArtifact("PG");
+    await link(parentFcid, pg, orderIndex);
+    for (let n = 0; n < paragraph.sentences.length; n += 1) {
+      const sn = await ensureArtifact("SN", { text: paragraph.sentences[n] });
+      await link(pg, sn, n);
+    }
+    orderIndex += 1;
+  }
+  for (const section of sections) {
+    await persistSection(section, parentFcid, orderIndex);
+    orderIndex += 1;
+  }
+  return true;
+}
 
 async function persistSection(section: ParsedSection, parentFcid: string, orderIndex: number): Promise<string> {
   const ss = await ensureArtifact("SS", { title: section.title, level: section.level });
@@ -231,20 +246,21 @@ async function persistSection(section: ParsedSection, parentFcid: string, orderI
   return ss;
 }
 
-function parseMarkdownSections(text: string): ParsedSection[] {
+function parseMarkdownSections(text: string): { preamble: ParsedParagraph[]; sections: ParsedSection[] } {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const roots: ParsedSection[] = [];
+  const preamble: ParsedParagraph[] = [];
   const stack: ParsedSection[] = [];
   let buffer: string[] = [];
 
   const flushParagraph = (): void => {
     const paragraph = buffer.join(" ").trim();
     const current = stack[stack.length - 1];
-    if (paragraph.length > 0 && current) {
-      current.children.push({
-        kind: "paragraph",
-        paragraph: { sentences: splitSentences(paragraph) },
-      });
+    if (paragraph.length > 0) {
+      const parsed = { sentences: splitSentences(paragraph) };
+      // Text before the first heading has no section to live in; it is kept as the preamble.
+      if (current) current.children.push({ kind: "paragraph", paragraph: parsed });
+      else preamble.push(parsed);
     }
     buffer = [];
   };
@@ -274,7 +290,6 @@ function parseMarkdownSections(text: string): ParsedSection[] {
       stack.push(section);
       continue;
     }
-    if (stack.length === 0) continue;
     if (line.length === 0) {
       flushParagraph();
       continue;
@@ -283,7 +298,7 @@ function parseMarkdownSections(text: string): ParsedSection[] {
   }
 
   flushParagraph();
-  return roots;
+  return { preamble, sections: roots };
 }
 
 function parseParagraphsToSentences(text: string): string[][] {

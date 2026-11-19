@@ -951,6 +951,7 @@ C19  item substituído usa o atual; item dividido retorna 409
 C20  expansão dentro do conteúdo do item, com position nos warnings
 C21  fontes intactas após a síntese (I4)
 C22  validação do body: modos, ranges, formato text sem marcadores
+C23  o sorteio nunca traz conteúdo de mensagem regenerada (ADR-015)
 ```
 
 ---

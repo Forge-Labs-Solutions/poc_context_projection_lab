@@ -142,21 +142,17 @@ function projectMS(
   const markdownParts: string[] = [`**${role}:**`];
   const textParts: string[] = [`${role}:`];
 
-  const hasSection = edges.some((e) => nodesMap.get(e.childFcid)?.type === "SS");
-
-  if (hasSection) {
-    for (const edge of edges) {
-      const child = nodesMap.get(edge.childFcid);
-      if (!child || child.type !== "SS") continue;
+  // SS and PG children are rendered in edge order. A message normally has one kind, but text before the
+  // first heading is a PG that precedes the sections (ADR-016); ignoring it would lose it in the projection.
+  for (const edge of edges) {
+    const child = nodesMap.get(edge.childFcid);
+    if (!child) continue;
+    if (child.type === "SS") {
       const ss = projectSS(child, nodesMap, childrenMap);
       sections.push(ss.json);
       markdownParts.push(ss.markdown);
       textParts.push(ss.text);
-    }
-  } else {
-    for (const edge of edges) {
-      const child = nodesMap.get(edge.childFcid);
-      if (!child || child.type !== "PG") continue;
+    } else if (child.type === "PG") {
       const pg = projectPG(child, nodesMap, childrenMap);
       paragraphs.push(pg.json);
       markdownParts.push(pg.markdown);

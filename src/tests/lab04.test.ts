@@ -352,6 +352,41 @@ describe("Lab 04 — Evolution & Lineage", () => {
     expect(childrenOf(doc.pg1)).toEqual([res.body.data.fcid]);
   });
 
+  it("C17: regenerate supersedes the whole subtree of the replaced message", async () => {
+    const chat = await post("/v1/lab01/chat/create", { resourceKey: "::evo-chat-subtree", title: "Subtree" });
+    const chatFcid = chat.body.data.chatFcid as string;
+    await post(`/v1/lab01/chat/${chatFcid}/messages`, { role: "user", text: "A question." });
+    const answer = await post(`/v1/lab01/chat/${chatFcid}/messages`, { role: "assistant", text: "Stale answer sentence." });
+    const oldMs = answer.body.data.messageFcid as string;
+    const oldPg = childrenOf(oldMs)[0];
+    const oldSn = childrenOf(oldPg)[0];
+    const reference = await post("/v1/lab03/references", { sourceFcid: chatFcid, fcas: `[[${oldSn}]]` });
+
+    const regenerated = await post("/v1/lab04/regenerate", { fcid: oldMs, text: "Fresh answer sentence." });
+    expect(regenerated.status).toBe(200);
+    const newMs = regenerated.body.data.fcid as string;
+    const newPg = childrenOf(newMs)[0];
+    const newSn = childrenOf(newPg)[0];
+
+    expect([oldMs, oldPg, oldSn].map(stateOf)).toEqual(["superseded", "superseded", "superseded"]);
+    expect([newMs, newPg, newSn].map(stateOf)).toEqual(["active", "active", "active"]);
+
+    // The replaced message stays readable by FCID, but it is no longer part of the chat.
+    expect(await projectMarkdown(oldMs)).toContain("Stale answer sentence.");
+    const chatView = await projectMarkdown(chatFcid);
+    expect(chatView).toContain("Fresh answer sentence.");
+    expect(chatView).not.toContain("Stale answer sentence.");
+
+    // Nothing inside the replaced message can be changed any more.
+    const edit = await post("/v1/lab04/edit", { fcid: oldSn, text: "Late edit." });
+    expect(edit.status).toBe(409);
+    expect(edit.body.code).toBe("SUPERSEDED");
+
+    // A reference into the stale content has no active descendant: it is orphaned.
+    const continuity = await get(`/v1/lab04/references/${reference.body.data.referenceId}`);
+    expect(continuity.body.data).toMatchObject({ targetFcid: oldSn, status: "orphaned", currentFcids: [] });
+  });
+
   it("reset clears lineage and evolution events", async () => {
     await resetAndSeed();
     const counts = sqliteClient

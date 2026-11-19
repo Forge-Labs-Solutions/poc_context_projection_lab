@@ -455,4 +455,28 @@ describe("Lab 06 — Synthetic Projection", () => {
     expect(text.body.data.content).not.toContain("# ");
     expect(text.body.data.format).toBe("text");
   });
+
+  // Resets the database, so it must stay the last test of the file.
+  it("C23: the draw never brings content from a regenerated message", async () => {
+    await resetAndSeed();
+    const chat = await createChat([
+      { role: "user", text: "A question." },
+      { role: "assistant", text: "Stale answer sentence." },
+    ]);
+    const oldMs = chat.msgs[1];
+    const oldPg = childrenOf(oldMs)[0];
+    const oldSn = childrenOf(oldPg)[0];
+    const regenerated = await post("/v1/lab04/regenerate", { fcid: oldMs, text: "Fresh answer sentence." });
+    expect(regenerated.status).toBe(200);
+
+    for (const [type, stale] of [["SN", oldSn], ["PG", oldPg], ["MS", oldMs]] as const) {
+      const result = await synth({ random: { type, count: 50, seed: 3 }, expand: false });
+      expect(result.status).toBe(200);
+      // The pool is tiny here, so the whole pool is drawn and an absent FCID is really absent.
+      expect(result.body.data.random.picked).toBe(result.body.data.random.poolSize);
+      const drawn = result.body.data.manifest.map((m: { fcid: string }) => m.fcid) as string[];
+      expect(drawn).not.toContain(stale);
+      expect(result.body.data.content).not.toContain("Stale answer sentence.");
+    }
+  });
 });

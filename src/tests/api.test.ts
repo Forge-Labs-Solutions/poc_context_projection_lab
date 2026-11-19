@@ -441,4 +441,69 @@ describe("bootstrap API", () => {
     const dirBody = dirExplorer.json() as { data: { children: string[] } };
     expect(dirBody.data.children.length).toBeGreaterThanOrEqual(2);
   });
+
+  describe("text before the first heading", () => {
+    async function post(url: string, payload: Record<string, unknown>) {
+      const response = await app.inject({ method: "POST", url, payload });
+      return { status: response.statusCode, body: response.json() as Record<string, any> };
+    }
+
+    async function importDoc(resourceKey: string, text: string): Promise<string> {
+      const { body } = await post("/v1/lab01/import/document", { resourceKey, title: resourceKey, text });
+      return body.data.rootFcid as string;
+    }
+
+    async function project(artifactFcid: string, targetFormat: "markdown" | "json" = "markdown") {
+      const { body } = await post("/v1/lab02/project", { artifactFcid, targetFormat });
+      return body.data as { content?: string; structured?: Record<string, unknown[]> };
+    }
+
+    it("keeps a preface, before the sections, in the document projection", async () => {
+      const dc = await importDoc("preface-one.md", "Preface before any heading.\n\n# Heading\n\nBody text.");
+      const content = (await project(dc)).content as string;
+      expect(content).toContain("Preface before any heading.");
+      expect(content).toContain("# Heading");
+      expect(content).toContain("Body text.");
+      expect(content.indexOf("Preface before any heading.")).toBeLessThan(content.indexOf("# Heading"));
+
+      const structured = (await project(dc, "json")).structured as Record<string, unknown[]>;
+      expect(structured.paragraphs).toHaveLength(1);
+      expect(structured.sections).toHaveLength(1);
+    });
+
+    it("keeps several preface paragraphs in order", async () => {
+      const dc = await importDoc("preface-many.md", "First preface.\n\nSecond preface.\n\n# H\n\nBody.");
+      const content = (await project(dc)).content as string;
+      expect(content.indexOf("First preface.")).toBeGreaterThan(-1);
+      expect(content.indexOf("First preface.")).toBeLessThan(content.indexOf("Second preface."));
+      expect(content.indexOf("Second preface.")).toBeLessThan(content.indexOf("# H"));
+    });
+
+    it("keeps a preface in a chat message", async () => {
+      const chat = await post("/v1/lab01/chat/create", { resourceKey: "::preface-chat", title: "Preface chat" });
+      const chatFcid = chat.body.data.chatFcid as string;
+      const message = await post(`/v1/lab01/chat/${chatFcid}/messages`, { role: "assistant", text: "Plan first:\n\n# Step 1\n\nDo it." });
+      const messageFcid = message.body.data.messageFcid as string;
+
+      const content = (await project(chatFcid)).content as string;
+      expect(content).toContain("Plan first:");
+      expect(content).toContain("# Step 1");
+      expect(content).toContain("Do it.");
+      expect(content.indexOf("Plan first:")).toBeLessThan(content.indexOf("# Step 1"));
+
+      const structured = (await project(messageFcid, "json")).structured as Record<string, unknown[]>;
+      expect(structured.paragraphs).toHaveLength(1);
+      expect(structured.sections).toHaveLength(1);
+    });
+
+    it("counts the preface as the first child in a Lab 05 window", async () => {
+      const dc = await importDoc("preface-window.md", "Preface before any heading.\n\n# Heading\n\nBody text.");
+      const first = await post("/v1/lab05/assemble", { target: dc, range: { from: 1, to: 1 }, expand: false });
+      expect(first.body.data.content).toBe("Preface before any heading.");
+      expect(first.body.data.selection).toMatchObject({ from: 1, to: 1, total: 2 });
+
+      const second = await post("/v1/lab05/assemble", { target: dc, range: { from: 2, to: 2 }, expand: false });
+      expect(second.body.data.content).toBe("# Heading\n\nBody text.");
+    });
+  });
 });
