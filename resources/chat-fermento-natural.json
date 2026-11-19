@@ -1,0 +1,30 @@
+{
+  "resourceKey": "::padaria-fermento-natural",
+  "title": "Começando o fermento natural",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Quero criar um fermento natural em casa. O que eu preciso?"
+    },
+    {
+      "role": "assistant",
+      "text": "Só de farinha, água e um pote de vidro. Misture partes iguais de farinha e água e tampe sem apertar. Deixe em um lugar morno e alimente todos os dias."
+    },
+    {
+      "role": "user",
+      "text": "Posso usar farinha integral para começar?"
+    },
+    {
+      "role": "assistant",
+      "text": "Pode, e muitas pessoas preferem. A farinha integral tem mais microrganismos e o fermento costuma ficar ativo mais depressa. Depois você pode passar para farinha branca se quiser um sabor mais suave."
+    },
+    {
+      "role": "user",
+      "text": "No terceiro dia não apareceu nenhuma bolha. Isso é normal?"
+    },
+    {
+      "role": "assistant",
+      "text": "É normal. Nos primeiros dias a cultura ainda está se formando e pode parecer parada. Mantenha a rotina de alimentação e deixe o pote em um lugar mais quente. As bolhas costumam aparecer por volta do quinto dia."
+    }
+  ]
+}

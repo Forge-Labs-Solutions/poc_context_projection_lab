@@ -1,0 +1,38 @@
+{
+  "resourceKey": "::padaria-duvidas-iniciante",
+  "title": "Dúvidas de quem vai assar o primeiro pão",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Quero assar meu primeiro pão amanhã. Nunca fiz isso. Por onde eu começo?"
+    },
+    {
+      "role": "assistant",
+      "text": "Que bom que você vai tentar. Vou resumir o caminho em duas etapas.\n\n## Preparar a massa\n\nMisture farinha, sal e fermento em uma tigela grande. Junte a água aos poucos até a massa ficar pegajosa. Sove por dez minutos e deixe descansar por uma hora.\n\n## Assar\n\nModele a massa, deixe crescer mais um pouco e asse em forno quente. Espere esfriar antes de cortar."
+    },
+    {
+      "role": "user",
+      "text": "Como eu sei que o pão já está assado por dentro?"
+    },
+    {
+      "role": "assistant",
+      "text": "Existe um teste simples. Vire o pão e bata na base com os dedos. Se o som for oco, ele está pronto. Se o som for abafado, devolva ao forno por mais dez minutos. A casca dourada também ajuda, mas ela sozinha pode enganar."
+    },
+    {
+      "role": "user",
+      "text": "Posso usar farinha integral na primeira tentativa?"
+    },
+    {
+      "role": "assistant",
+      "text": "Pode, mas a massa vai se comportar de outro jeito. A farinha integral absorve mais água e o pão fica mais denso. Para a primeira fornada eu sugiro a farinha branca. Depois que você pegar o jeito, misture metade de cada uma."
+    },
+    {
+      "role": "user",
+      "text": "Quanto tempo o pão dura depois de pronto?"
+    },
+    {
+      "role": "assistant",
+      "text": "Em um saco de pano, dura de dois a três dias. Depois disso ele endurece, mas ainda serve para torrada. Se quiser guardar por mais tempo, fatie e congele. Basta passar na torradeira quando for comer."
+    }
+  ]
+}

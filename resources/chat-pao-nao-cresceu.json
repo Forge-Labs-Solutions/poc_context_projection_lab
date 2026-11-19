@@ -1,0 +1,34 @@
+{
+  "resourceKey": "::padaria-pao-nao-cresceu",
+  "title": "Meu pão não cresceu",
+  "messages": [
+    {
+      "role": "system",
+      "text": "Você é uma padeira experiente. Responda com paciência e em linguagem simples."
+    },
+    {
+      "role": "user",
+      "text": "Fiz o pão e ele não cresceu nada. A massa ficou parada na tigela. O que aconteceu?"
+    },
+    {
+      "role": "assistant",
+      "text": "Vamos descobrir. O mais comum é um problema com o fermento ou com a temperatura.\n\n## Primeiro, o fermento\n\nVerifique a validade do pacote. Dissolva um pouco em água morna com açúcar e espere dez minutos. Se não formar espuma, o fermento está fraco.\n\n## Depois, a temperatura\n\nUm ambiente frio atrasa muito o crescimento. Em dias de inverno, a massa pode levar o dobro do tempo."
+    },
+    {
+      "role": "user",
+      "text": "Usei água bem quente porque a cozinha estava fria. Pode ter sido isso?"
+    },
+    {
+      "role": "assistant",
+      "text": "Muito provavelmente. Água muito quente mata o fermento, e a massa deixa de crescer. A água deve estar morna, na temperatura em que você aguenta colocar o dedo sem se queimar. Para dias frios, aqueça o ambiente, e não a água."
+    },
+    {
+      "role": "user",
+      "text": "Dá para salvar essa massa ou tenho que jogar fora?"
+    },
+    {
+      "role": "assistant",
+      "text": "Dá para tentar. Dissolva um pouco de fermento novo em água morna e misture na massa, sovando bem. Deixe descansar em um lugar morno. Se ela crescer, asse normalmente. Se não crescer, transforme em pão achatado ou pizza."
+    }
+  ]
+}
