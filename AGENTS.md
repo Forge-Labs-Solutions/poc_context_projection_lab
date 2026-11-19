@@ -39,4 +39,5 @@ Registrar decisões e experimentos relacionados a:
 - Lab 02 — Projection Engine
 - Lab 03 — FCAS Resolution
 - Lab 04 — Evolution & Lineage
+- Lab 05 — Context Assembly
 ```

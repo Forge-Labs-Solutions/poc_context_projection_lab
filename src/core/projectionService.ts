@@ -31,7 +31,7 @@ function sortByOrderIndex(edges: EdgeRow[]): EdgeRow[] {
   return [...edges].sort((a, b) => a.orderIndex - b.orderIndex);
 }
 
-async function loadArtifactWithGraph(rootFcid: string): Promise<{
+export async function loadArtifactWithGraph(rootFcid: string): Promise<{
   root: ArtifactRow | null;
   nodesMap: Map<string, ArtifactRow>;
   childrenMap: Map<string, EdgeRow[]>;
@@ -180,22 +180,33 @@ function projectDC(
   const title = String(metadata.title ?? "Untitled Document");
   const edges = childrenMap.get(node.fcid) ?? [];
   const sections = [];
+  const paragraphs = [];
   const markdownParts: string[] = [`# ${title}`];
   const textParts: string[] = [title];
 
   for (const edge of edges) {
     const child = nodesMap.get(edge.childFcid);
-    if (!child || child.type !== "SS") continue;
-    const ss = projectSS(child, nodesMap, childrenMap);
-    sections.push(ss.json);
-    markdownParts.push(ss.markdown);
-    textParts.push(ss.text);
+    if (!child) continue;
+    if (child.type === "SS") {
+      const ss = projectSS(child, nodesMap, childrenMap);
+      sections.push(ss.json);
+      markdownParts.push(ss.markdown);
+      textParts.push(ss.text);
+      continue;
+    }
+    // ADR-010: documents without headings map to DC -> PG -> SN.
+    if (child.type === "PG") {
+      const pg = projectPG(child, nodesMap, childrenMap);
+      paragraphs.push(pg.json);
+      if (pg.markdown.length > 0) markdownParts.push(pg.markdown);
+      if (pg.text.length > 0) textParts.push(pg.text);
+    }
   }
 
   return {
     markdown: markdownParts.join("\n\n"),
     text: textParts.join("\n\n"),
-    json: { type: "DC", fcid: node.fcid, title, sections },
+    json: { type: "DC", fcid: node.fcid, title, sections, paragraphs },
   };
 }
 
@@ -225,6 +236,30 @@ function projectCH(
   };
 }
 
+/** Renders one node (and everything below it) in all formats. Shared with the Lab 05 assembly engine. */
+export function renderArtifactNode(
+  node: ArtifactRow,
+  nodesMap: Map<string, ArtifactRow>,
+  childrenMap: Map<string, EdgeRow[]>,
+): { markdown: string; text: string; json: unknown } {
+  switch (node.type as SupportedScope) {
+    case "SN":
+      return projectSN(node);
+    case "PG":
+      return projectPG(node, nodesMap, childrenMap);
+    case "SS":
+      return projectSS(node, nodesMap, childrenMap);
+    case "MS":
+      return projectMS(node, nodesMap, childrenMap);
+    case "DC":
+      return projectDC(node, nodesMap, childrenMap);
+    case "CH":
+      return projectCH(node, nodesMap, childrenMap);
+    default:
+      throw new Error("UNSUPPORTED_SCOPE");
+  }
+}
+
 export async function projectArtifact(
   artifactFcid: string,
   targetFormat: ProjectionFormat = "markdown",
@@ -237,29 +272,7 @@ export async function projectArtifact(
     throw new Error("UNSUPPORTED_SCOPE");
   }
 
-  let rendered: { markdown: string; text: string; json: unknown };
-  switch (root.type as SupportedScope) {
-    case "SN":
-      rendered = projectSN(root);
-      break;
-    case "PG":
-      rendered = projectPG(root, nodesMap, childrenMap);
-      break;
-    case "SS":
-      rendered = projectSS(root, nodesMap, childrenMap);
-      break;
-    case "MS":
-      rendered = projectMS(root, nodesMap, childrenMap);
-      break;
-    case "DC":
-      rendered = projectDC(root, nodesMap, childrenMap);
-      break;
-    case "CH":
-      rendered = projectCH(root, nodesMap, childrenMap);
-      break;
-    default:
-      throw new Error("UNSUPPORTED_SCOPE");
-  }
+  const rendered = renderArtifactNode(root, nodesMap, childrenMap);
 
   const base: RenderedProjection = {
     artifactFcid: root.fcid,

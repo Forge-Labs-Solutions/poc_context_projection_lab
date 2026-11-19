@@ -265,3 +265,192 @@ Revisar depois
 ## Observacoes
 
 Debito tecnico consciente: unificar a UI em uma unica fonte (gerar o `main.js` dos modulos ou remover os modulos).
+
+Em 2026-11-19 a aba Assembly (Lab 05) tambem foi implementada apenas em `main.js`, ampliando a divergencia com os modulos `.ts`.
+
+# ADR-007 - Assembly como camada sobre Projection Engine e FCAS Resolver
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 05 - Context Assembly  
+Lab 02 - Projection Engine  
+Lab 03 - FCAS Resolution
+
+## Contexto
+
+O spec do Lab 05 (Document Assembly, Chat Assembly, Partial Assembly, FCAS Expansion) se sobrepoe ao Lab 02, que ja projeta qualquer FCID de SN a CH, e ao Lab 06 (Synthetic Projection), que compoe views a partir de artefatos escolhidos livremente.
+
+## Decisao
+
+- A montagem e uma camada nova (`lab05Service`) que resolve o alvo pelo Lab 03, obtem o conteudo pelo Lab 02 e aplica recorte e expansao. Nao substitui nem altera `/v1/lab02/project`.
+- Toda montagem tem exatamente um alvo raiz. Outros artefatos entram apenas por referencia FCAS presente no conteudo, nunca por selecao direta. Selecao direta de artefatos de origens diferentes pertence ao Lab 06.
+- Invariante: `assemble(alvo, sem range, roles ou expansao)` produz o mesmo conteudo que `project(alvo)`.
+- Toda montagem devolve um manifest (root, selected, expanded) e uma lista de warnings.
+
+## Alternativas consideradas
+
+- Estender `/v1/lab02/project` com recorte e expansao
+- Permitir varios alvos raiz ja no Lab 05
+
+## Motivo
+
+Manter o Lab 02 como "um FCID, completo" preserva a projecao como primitiva testavel e permite verificar a montagem contra ela (invariante). Um unico alvo raiz traca a fronteira com o Lab 06 sem sobreposicao.
+
+## Impacto
+
+- Projection Engine: reutilizado sem mudanca de contrato (ver ADR-010 para uma correcao).
+- FCAS Resolution: reutilizado, inclusive a resolucao via lineage (ADR-005).
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Detalhamento em `docs/lab 05.md`.
+
+Aprovada e implementada em 2026-11-19 (EXP-008) em `src/core/lab05Service.ts`. Para reutilizar o renderizador, `projectionService` passou a exportar `loadArtifactWithGraph` e `renderArtifactNode`; o contrato de `/v1/lab02/project` nao mudou.
+
+# ADR-008 - Selecao parcial por janela sobre filhos e filtro de papel
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 05 - Context Assembly
+
+## Contexto
+
+O spec pede montagem parcial ("somente uma secao", "somente algumas mensagens") sem definir como recortar nem como numerar.
+
+## Decisao
+
+- Uma secao isolada e obtida pelo proprio alvo (`[[doc.md#Secao]]` resolve para o SS); nao exige parametro.
+- `range { from, to? }` e uma janela de indices 1-based e inclusivos sobre os filhos ordenados do alvo. `to` acima do total e reduzido; `from` invalido ou `to < from` retorna 422.
+- Em chats, o indice da janela e o mesmo do FCAS (`range 2..2` equivale a `[[::chat<2>]]`).
+- `roles` (somente chats) age como interseccao dentro da janela; a numeracao nao e recontada.
+- Com range ou roles, o cabecalho do alvo (titulo do DC, heading do SS, rotulo de role do MS) e omitido.
+- SN com range retorna 422; roles em alvo que nao e chat retorna 422.
+
+## Alternativas consideradas
+
+- Filtrar por papel primeiro e numerar apenas as mensagens filtradas
+- Manter o cabecalho do alvo no recorte
+- Parametros distintos por tipo (`sections`, `messages`)
+
+## Motivo
+
+Uma janela unica serve a DC, SS, MS e CH com o mesmo codigo. Usar a numeracao do FCAS evita duas numeracoes concorrentes para a mesma mensagem. Interseccao e deterministica e nao altera a identidade posicional das mensagens.
+
+## Impacto
+
+- FCAS Resolution: nenhuma mudanca; apenas reutiliza a numeracao `<n>`.
+- Projection Engine: o recorte projeta cada filho selecionado pelo mesmo renderizador.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Filtros por conteudo ou por profundidade de heading ficam fora do Lab 05.
+
+Aprovada e implementada em 2026-11-19 (EXP-008). `range` e validado no servico (nao no schema) para que janelas invalidas retornem 422 `INVALID_RANGE` em vez de 400.
+
+# ADR-009 - Regras de expansao de referencias FCAS
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 05 - Context Assembly  
+Lab 03 - FCAS Resolution
+
+## Contexto
+
+Referencias `[[...]]` ficam persistidas dentro do texto dos SN. Expandir uma referencia pode inserir um documento inteiro no meio de uma frase, formar ciclos ou apontar para artefatos inexistentes, substituidos ou divididos.
+
+## Decisao
+
+- A expansao e nao destrutiva: ocorre na montagem, sobre o texto projetado; o texto dos SN nunca e alterado.
+- Referencia em bloco (unico conteudo do paragrafo) aceita qualquer alvo projetavel. Referencia inline aceita apenas SN e PG; inline para DC, SS, MS ou CH nao e expandida (warning `BLOCK_REFERENCE_INLINE`).
+- A expansao e recursiva, com `maxDepth` padrao 3 (1 a 5). Ciclo e detectado pela pilha de FCIDs em expansao, incluindo o alvo raiz.
+- Qualquer falha deixa o token literal e registra warning (`NOT_FOUND`, `UNSUPPORTED_TARGET`, `AMBIGUOUS`, `CYCLE`, `DEPTH_EXCEEDED`, `BLOCK_REFERENCE_INLINE`). Apenas o alvo e o recorte podem causar erro HTTP.
+- FCID substituido com um unico descendente ativo e expandido pelo descendente, com `evolvedFrom` no manifest. FCID dividido (varios ativos) nao e expandido: `AMBIGUOUS` com candidatos.
+
+## Alternativas consideradas
+
+- Expandir sempre inline, achatando o conteudo em uma linha
+- Falhar a montagem inteira ao primeiro token invalido
+- Expandir um FCID dividido concatenando as partes (o split preserva o conteudo)
+- Gravar o conteudo expandido nos SN
+
+## Motivo
+
+Nao destrutiva preserva os artefatos como fonte de verdade. A distincao bloco/inline evita quebrar paragrafos. Falhas como warning tornam a montagem robusta a conteudo mal escrito. Tratar ambiguidade como no resolver do Lab 03 mantem a mesma regra nas duas camadas; concatenar partes ficaria como evolucao futura.
+
+## Impacto
+
+- FCAS Resolution: a expansao consome `resolveFcasToFcid`, herdando lineage e ambiguidade.
+- Projection Engine: nenhum.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+O resolver do Lab 03 ignora o nome em `[[Diretorio]]` e `[[$Projeto]]` (resolve para o primeiro DR/PJ). Nao afeta a expansao, pois DR e PJ nao sao projetaveis, mas o warning apontara o alvo errado. Registrado como debito do Lab 03.
+
+Aprovada e implementada em 2026-11-19 (EXP-008). Observado na execucao: um `[[palavra]]` comum na prosa fica literal; gera `NOT_FOUND` quando nao ha nenhum diretorio no workspace e `UNSUPPORTED_TARGET` quando ha (o resolver devolve o primeiro DR). Um FCAS cujo titulo contem ". " (ex.: `[[a.md#Part. Two]]`) e quebrado em dois SN pelo divisor de sentencas do Lab 01 e deixa de ser reconhecido.
+
+# ADR-010 - Projecao de DC passa a incluir PG filhos diretos
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 02 - Projection Engine  
+Lab 05 - Context Assembly
+
+## Contexto
+
+Documentos importados sem titulos markdown geram `DC -> PG -> SN`. `projectDC` so percorre filhos `SS`, entao esses documentos projetam apenas o cabecalho, perdendo todo o conteudo. Confirmado em 2026-11-19: importar "Primeiro.\n\nSegundo." e projetar o DC retorna "# Untitled Document".
+
+## Decisao
+
+`projectDC` passa a projetar tambem filhos `PG` diretos, na ordem de `orderIndex`, junto com os `SS`. O JSON do DC ganha o campo `paragraphs` (mesmo formato de MS), mantendo `sections`.
+
+## Alternativas consideradas
+
+- Forcar o Lab 01 a criar uma secao implicita para documentos sem titulo
+- Corrigir apenas na montagem, mantendo a projecao com perda
+
+## Motivo
+
+A perda esta na projecao, que e a fonte do conteudo; corrigir so na montagem violaria a invariante `assemble = project`. Criar secao implicita alteraria o mapeamento e os FCIDs de documentos existentes.
+
+## Impacto
+
+- Projection Engine: documentos sem titulos passam a projetar o conteudo; mudanca aditiva no JSON.
+- Artifact Mapping: nenhuma mudanca.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+O titulo do DC continua saindo como "Untitled Document", pois o DC guarda apenas `resourceKey` no metadata. Fora do escopo do Lab 05.
+
+Aprovada e implementada em 2026-11-19 (EXP-008); coberta pelo teste C02.

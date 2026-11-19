@@ -688,3 +688,69 @@ Continuidade de um Reference Artifact: `status` = `resolved` | `evolved` | `ambi
 
 ### Mudanca no Lab 03
 `POST /v1/lab03/resolve` com `[[FCID]]` superseded resolve para o descendente (`evolvedFrom` no retorno) ou retorna `409` com `details.candidates` quando houve split.
+
+## 7) Lab 05 - Context Assembly
+
+Regras em `docs/lab 05.md` (ADR-007 a ADR-010). Erros seguem o formato:
+
+```json
+{ "error": "Range must satisfy 1 <= from <= 4 and to >= from", "code": "INVALID_RANGE", "details": { "from": 5, "to": null, "total": 4 } }
+```
+
+Codigos: `INVALID_TARGET` (400), `NOT_FOUND` (404), `UNSUPPORTED_SCOPE`, `AMBIGUOUS` (409, `details.candidates`), `INVALID_RANGE`, `NO_CHILDREN`, `ROLES_NOT_APPLICABLE` (422). Body invalido retorna 400.
+
+Referencias que nao podem ser expandidas nao geram erro: o token fica literal e entra em `warnings`.
+
+### POST `/v1/lab05/assemble`
+Monta uma view a partir de um alvo (FCAS `[[...]]` ou FCID).
+
+Body:
+```json
+{
+  "target": "[[::retrieval-chat]]",
+  "range": { "from": 2, "to": 3 },
+  "roles": ["assistant"],
+  "expand": true,
+  "maxDepth": 3,
+  "format": "markdown"
+}
+```
+
+Somente `target` e obrigatorio. Padroes: `expand: true`, `maxDepth: 3` (1 a 5), `format: "markdown"` (`markdown` ou `text`).
+
+- `range`: janela 1-based e inclusiva sobre os filhos do alvo; em chats usa a mesma numeracao do FCAS (`<n>`). `to` acima do total e reduzido.
+- `roles` (`user`, `assistant`, `system`): somente para chats; filtra dentro da janela sem renumerar.
+- Com `range` ou `roles`, o cabecalho do alvo e omitido.
+- Alvos: SN, PG, SS, MS, DC e CH.
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "target": { "raw": "[[::retrieval-chat]]", "fcid": "CH_8A626C", "type": "CH", "evolvedFrom": null },
+    "format": "markdown",
+    "selection": { "from": 2, "to": 3, "total": 4, "roles": ["assistant"] },
+    "content": "**assistant:**\n\nMsg two.",
+    "manifest": [
+      { "fcid": "CH_8A626C", "type": "CH", "role": "root", "depth": 0 },
+      { "fcid": "MS_T2W7K5", "type": "MS", "role": "selected", "depth": 0 }
+    ],
+    "warnings": [],
+    "stats": { "expanded": 0, "warnings": 0 }
+  }
+}
+```
+
+`selection` e `null` sem recorte. Entradas do `manifest` com `role: "expanded"` trazem `depth`, `via` (a referencia FCAS) e, quando a referencia passou por lineage, `evolvedFrom`.
+
+Codigos de `warnings`: `NOT_FOUND`, `UNSUPPORTED_TARGET`, `AMBIGUOUS` (com `candidates`), `CYCLE`, `DEPTH_EXCEEDED`, `BLOCK_REFERENCE_INLINE`.
+
+### POST `/v1/lab05/expand`
+Expande referencias FCAS em um texto qualquer, sem alvo.
+
+Body:
+```json
+{ "text": "Intro.\n\n[[architecture.md#Introduction]]", "maxDepth": 3, "format": "markdown" }
+```
+
+Resposta `200`: `content`, `manifest` (apenas entradas `expanded`), `warnings` e `stats`.

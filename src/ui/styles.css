@@ -148,3 +148,17 @@ pre { white-space: pre-wrap; margin: 0; background: #f7faff; border: 1px solid v
 .badge { font-size: 11px; font-weight: 400; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); }
 .badge-active { background: #e9f7ef; color: var(--ok); border-color: #bfe9cd; }
 .badge-superseded { background: #fff4e0; color: #9a5b00; border-color: #f2d9a8; }
+
+.asm-modes { margin-bottom: 8px; }
+.asm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.asm-checks { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
+.asm-check { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; font-size: 13px; }
+.asm-checks .asm-check { margin: 0; }
+.asm-check input { width: auto; margin: 0; }
+.asm-actions { display: flex; gap: 8px; margin: 4px 0 12px; }
+.asm-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.asm-error { border: 1px solid #f6c4c0; background: #feeceb; color: #b53a2f; border-radius: 8px; padding: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.badge-root { background: #e8f0ff; color: var(--accent); border-color: #c6d8ff; }
+.badge-selected { background: #f3f7ef; color: #4a7a28; border-color: #d4e4c5; }
+.badge-expanded { background: #f1ecff; color: #5b3fc4; border-color: #d9ccff; }
+.badge-warning { background: #fff4e0; color: #9a5b00; border-color: #f2d9a8; }

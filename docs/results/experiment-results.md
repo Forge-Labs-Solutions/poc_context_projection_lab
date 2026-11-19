@@ -399,3 +399,140 @@ Validado
 ## Pendencias
 
 - Nao verificado: layout em largura estreita (menos de 1180px) e a abertura do before/after, que e perdida quando a UI e redesenhada.
+
+# EXP-008 - Validacao do Lab 05 (Context Assembly)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 05 - Context Assembly  
+Lab 02 - Projection Engine  
+Lab 03 - FCAS Resolution  
+Lab 04 - Evolution & Lineage
+
+## Hipotese
+
+Uma camada de montagem sobre o Projection Engine e o FCAS Resolver (ADR-007 a ADR-010) monta views completas e parciais de documentos e chats, expande referencias FCAS de forma segura e informa de onde veio cada parte, sem alterar os artefatos.
+
+## Procedimento
+
+1. Corrigir `projectDC` para projetar PG filhos diretos (ADR-010) e exportar `loadArtifactWithGraph` e `renderArtifactNode` de `projectionService`.
+2. Implementar o Assembly Engine em `src/core/lab05Service.ts` e as rotas `/v1/lab05/assemble` e `/v1/lab05/expand`.
+3. Escrever os cenarios C01-C21 de `docs/lab 05.md` em `src/tests/lab05.test.ts`, mais 2 testes extras (validacao de alvo e corpo; alvo por FCID).
+4. Executar `npx vitest run` contra uma copia do banco, com `tsc --noEmit` e `npm run build`.
+5. Teste de mutacao: desfazer apenas a correcao do ADR-010 e confirmar que o teste correspondente falha.
+6. Sondar duas hipoteses de borda executando o codigo: `[[palavra]]` comum na prosa e FCAS com ". " no titulo.
+
+## Entrada
+
+- Documentos com e sem titulos, com secoes aninhadas, com referencias em bloco e inline, em cadeia e em ciclo.
+- Chats com 4 mensagens alternando user e assistant.
+- Referencias a SN editado, substituido (semantic change) e dividido (split) do Lab 04.
+
+## Resultado observado
+
+- 63 de 63 testes passaram (21 anteriores ao Lab 04, 19 do Lab 04, 23 do Lab 05).
+- `tsc --noEmit` e `npm run build` sem erros.
+- Invariante `assemble = project` confirmada para documento, documento sem titulos e chat (markdown e text).
+- Sem a correcao do ADR-010, somente o C02 falhou (mutacao restrita a `projectDC`), confirmando que o teste detecta a regressao.
+- Recorte: janela de secoes e de mensagens, `to` reduzido ao total, `roles` por interseccao sem renumerar, `range` 2..2 de um chat identico a `[[::chat<2>]]`, janelas invalidas retornam 422.
+- Expansao: bloco (DC e MS), inline (SN), inline para container mantido literal com `BLOCK_REFERENCE_INLINE`, recursao limitada por `maxDepth`, ciclo e auto-referencia terminam com `CYCLE`, inexistente e WS mantidos literais com warning.
+- Lab 04: referencia a SN substituido expande o descendente com `evolvedFrom` no manifest; SN dividido gera `AMBIGUOUS` com candidatos (e 409 como alvo).
+- O texto dos SN permaneceu identico antes e depois da montagem.
+- Sondagem: `[[palavra]]` comum fica literal (NOT_FOUND sem diretorio no workspace, UNSUPPORTED_TARGET com diretorio); FCAS com ". " no titulo e quebrado em dois SN na importacao e nao e reconhecido.
+
+## Resultado esperado
+
+Todas as hipoteses do Lab 05 validadas por testes automatizados.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/core/lab05Service.ts`, `src/core/lab05Schemas.ts`, `src/api/routes/lab05Routes.ts`.
+- `src/core/projectionService.ts` (`projectDC`, `renderArtifactNode`).
+- `src/tests/lab05.test.ts`.
+
+## Decisoes derivadas
+
+- ADR-007
+- ADR-008
+- ADR-009
+- ADR-010
+
+## Pendencias
+
+- Painel de montagem na UI: implementado depois e validado no EXP-009.
+- O manifest registra cada ocorrencia de expansao, sem deduplicar o mesmo alvo expandido mais de uma vez.
+- Cada montagem carrega o grafo inteiro em memoria; sem cache.
+- O divisor de sentencas do Lab 01 pode quebrar um FCAS que contenha ". " no titulo.
+- Debitos herdados e fora do escopo: titulo do DC sempre "Untitled Document" e resolucao de `[[Diretorio]]` e `[[$Projeto]]` que ignora o nome.
+
+# EXP-009 - Validacao visual da aba Assembly do Lab 05
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 05 - Context Assembly
+
+## Hipotese
+
+Uma aba na UI consegue montar views completas e parciais, expandir texto com referencias FCAS e mostrar o manifest e os warnings, usando apenas os endpoints `/v1/lab05/*`.
+
+## Procedimento
+
+1. Subir a API (build compilado) apontando para uma copia do banco, sem tocar em `data/forgeos.db`.
+2. Pela API, criar: um documento com referencia em bloco, referencia inline a SN, referencia inline a documento, referencia inexistente e referencia a um SN depois dividido; um chat com 4 mensagens alternando user e assistant.
+3. Na aba Assembly, selecionar o documento na arvore e montar.
+4. Selecionar o chat, definir a janela 2-4 e o papel assistant, e montar.
+5. Definir uma janela invalida (`to` menor que `from`).
+6. No modo Expand text, expandir um texto com uma secao em bloco, um documento inline e um documento inexistente.
+7. Clicar em um FCID do manifest.
+8. Ler o console do navegador.
+
+## Entrada
+
+- Copia do banco com 74 artefatos mais os documentos `glossary.md`, `fact.md`, `parts.md`, `host.md` e o chat `::demo-chat`.
+- Viewport emulado de 1400x900 (o painel do navegador tem 800px e a UI empilha as colunas abaixo de 1180px).
+
+## Resultado observado
+
+- Selecionar um artefato na arvore preenche o alvo e monta automaticamente.
+- Documento `host`: o bloco `[[glossary.md]]` e o inline para SN foram expandidos; o inline para documento, a referencia inexistente e o SN dividido ficaram literais. O manifest listou raiz e 2 expandidos; os 3 warnings (`BLOCK_REFERENCE_INLINE`, `NOT_FOUND`, `AMBIGUOUS` com candidatos clicaveis) apareceram.
+- Chat com janela 2-4 e papel assistant: exibiu somente as mensagens 2 e 4; o painel mostrou "2-4 of 4, roles: assistant" e 2 entradas `selected`.
+- Os valores do formulario sobreviveram ao redesenho da tela.
+- Janela invalida: mensagem `INVALID_RANGE` com os detalhes (`total: 4`) e manifest limpo.
+- Expand text: a secao em bloco foi expandida; o inline para documento e a referencia inexistente geraram warnings; o manifest mostrou apenas a entrada expandida.
+- Clicar em um FCID do manifest voltou ao modo Assemble, definiu o alvo, limpou a janela e montou o alvo.
+- Console do navegador: um unico erro, o 422 do teste proposital de janela invalida.
+
+## Resultado esperado
+
+Montagem completa, parcial e expansao isolada utilizaveis pela UI, com manifest e warnings legiveis.
+
+## Conclusao
+
+Validado
+
+## Evidencias
+
+- `src/ui/main.js` (`assembly`, `runAssemble`, `renderAssemblyCenter`, `renderAssemblyDetails`, `bindAssembly`) e `src/ui/styles.css`.
+- Execucao manual no painel do navegador.
+
+## Decisoes derivadas
+
+- Nenhuma nova. O painel foi implementado apenas em `main.js`, conforme ADR-006.
+
+## Pendencias
+
+- Nao verificado no navegador: clique em um candidato de `AMBIGUOUS`, os seletores `maxDepth` e `Format`, a opcao de desligar a expansao, a tecla Enter no campo de alvo e o layout em largura estreita.
+- A arvore da aba Assembly mostra todos os artefatos, incluindo SN, e fica longa em bancos grandes.
+- Alterar o formulario nao refaz a montagem; e preciso clicar em Assemble.

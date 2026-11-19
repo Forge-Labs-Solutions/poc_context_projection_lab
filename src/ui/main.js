@@ -131,6 +131,9 @@ function getVisibleFcidSet() {
   const visible = new Set();
   const map = byFcidMap(all);
 
+  // Assembly can target documents and chats alike, so nothing is filtered out.
+  if (state.activePanel === "assembly") return new Set(all.map((n) => n.fcid));
+
   if (state.activePanel === "chat") {
     const chatFcids = all.filter((n) => n.type === "CH").map((n) => n.fcid);
     for (const fcid of chatFcids) visible.add(fcid);
@@ -389,6 +392,208 @@ function buildNodeText(rootFcid) {
   return texts.join(" ");
 }
 
+// ---------- Assembly panel (Lab 05) ----------
+// Form values live in this object because render() rebuilds the whole DOM.
+
+const assembly = {
+  mode: "assemble",
+  target: "",
+  from: "",
+  to: "",
+  roles: [],
+  expand: true,
+  maxDepth: 3,
+  format: "markdown",
+  text: "",
+  result: null,
+  error: "",
+};
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll('"', "&quot;");
+}
+
+async function assemblyRequest(url, payload) {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      const message = typeof body.error === "string" ? body.error : JSON.stringify(body.error);
+      const details = body.details ? ` ${JSON.stringify(body.details)}` : "";
+      return { error: `${body.code ? `${body.code}: ` : ""}${message}${details}` };
+    }
+    return { data: body.data };
+  } catch (error) {
+    return { error: error && error.message ? error.message : "Request failed" };
+  }
+}
+
+function applyAssemblyOutcome(outcome) {
+  if (outcome.error) {
+    assembly.result = null;
+    assembly.error = outcome.error;
+    return;
+  }
+  assembly.result = outcome.data;
+  assembly.error = "";
+}
+
+/** A window only makes sense for one target, so choosing a new target resets it. */
+function setAssemblyTarget(fcid) {
+  assembly.mode = "assemble";
+  assembly.target = fcid;
+  assembly.from = "";
+  assembly.to = "";
+  assembly.roles = [];
+}
+
+async function runAssemble() {
+  if (assembly.mode === "expand") {
+    applyAssemblyOutcome(await assemblyRequest("/v1/lab05/expand", {
+      text: assembly.text,
+      maxDepth: assembly.maxDepth,
+      format: assembly.format,
+    }));
+    return;
+  }
+
+  const target = assembly.target.trim();
+  if (!target) {
+    assembly.result = null;
+    assembly.error = "Informe um alvo (FCAS ou FCID) ou selecione um artefato na arvore.";
+    return;
+  }
+  const payload = { target, expand: assembly.expand, maxDepth: assembly.maxDepth, format: assembly.format };
+  if (assembly.from !== "") {
+    payload.range = { from: Number(assembly.from) };
+    if (assembly.to !== "") payload.range.to = Number(assembly.to);
+  } else if (assembly.to !== "") {
+    assembly.result = null;
+    assembly.error = "Informe 'from' para usar 'to'.";
+    return;
+  }
+  if (assembly.roles.length > 0) payload.roles = assembly.roles;
+  applyAssemblyOutcome(await assemblyRequest("/v1/lab05/assemble", payload));
+}
+
+function renderAssemblyCenter() {
+  const a = assembly;
+  const isAssemble = a.mode === "assemble";
+  const depthOptions = [1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${a.maxDepth === n ? "selected" : ""}>${n}</option>`).join("");
+  const formatOptions = ["markdown", "text"].map((f) => `<option value="${f}" ${a.format === f ? "selected" : ""}>${f}</option>`).join("");
+
+  const form = isAssemble
+    ? `<label>Target (FCAS or FCID)</label>
+      <input id="asm-target" value="${escapeAttr(a.target)}" placeholder="[[architecture.md#Introduction]] or DC_ABC123" />
+      <div class="hint">Click an artifact in the tree to fill the target and assemble it.</div>
+      <div class="asm-row">
+        <div><label>Range from</label><input id="asm-from" type="number" min="1" value="${escapeAttr(a.from)}" placeholder="1" /></div>
+        <div><label>Range to</label><input id="asm-to" type="number" min="1" value="${escapeAttr(a.to)}" placeholder="(end)" /></div>
+      </div>
+      <div class="asm-checks"><span class="hint">Roles (chats only)</span>${["user", "assistant", "system"].map((role) => `<label class="asm-check"><input type="checkbox" data-asm-role="${role}" ${a.roles.includes(role) ? "checked" : ""} />${role}</label>`).join("")}</div>
+      <label class="asm-check"><input type="checkbox" id="asm-expand" ${a.expand ? "checked" : ""} />Expand FCAS references</label>`
+    : `<label>Text with FCAS references</label>
+      <textarea id="asm-text" placeholder="Intro.&#10;&#10;[[architecture.md#Introduction]]">${escapeHtml(a.text)}</textarea>`;
+
+  const output = a.error
+    ? `<div class="asm-error">${escapeHtml(a.error)}</div>`
+    : a.result
+      ? `<pre>${escapeHtml(a.result.content.length > 0 ? a.result.content : "(empty assembly)")}</pre>`
+      : `<div class="hint">Run an assembly to see the result.</div>`;
+
+  return `<h3>Assembly</h3>
+    <div class="tabs asm-modes"><button data-asm-mode="assemble" class="${isAssemble ? "active" : ""}">Assemble</button><button data-asm-mode="expand" class="${isAssemble ? "" : "active"}">Expand text</button></div>
+    ${form}
+    <div class="asm-row">
+      <div><label>maxDepth</label><select id="asm-depth">${depthOptions}</select></div>
+      <div><label>Format</label><select id="asm-format">${formatOptions}</select></div>
+    </div>
+    <div class="asm-actions"><button id="asm-run" class="asm-primary">${isAssemble ? "Assemble" : "Expand"}</button>${isAssemble ? `<button id="asm-clear">Clear window</button>` : ""}</div>
+    ${output}`;
+}
+
+function renderAssemblyDetails() {
+  const r = assembly.result;
+  if (!r) return `<h3>Manifest</h3><div class="hint">No assembly yet.</div>`;
+
+  const parts = [`<h3>Manifest</h3>`];
+  if (r.target) {
+    const evolved = r.target.evolvedFrom ? ` <span class="lineage-rel">evolved from ${lineageLink(r.target.evolvedFrom)}</span>` : "";
+    parts.push(`<div class="lineage-block"><div class="hint">Target</div><div>${escapeHtml(r.target.type)} ${lineageLink(r.target.fcid)}${evolved}</div></div>`);
+  }
+  if (r.selection) {
+    const roles = r.selection.roles ? `, roles: ${escapeHtml(r.selection.roles.join(", "))}` : "";
+    parts.push(`<div class="lineage-block"><div class="hint">Window</div><div>${r.selection.from}&ndash;${r.selection.to} of ${r.selection.total}${roles}</div></div>`);
+  }
+  parts.push(`<div class="lineage-block"><div class="hint">Stats</div><div>expanded ${r.stats.expanded} &middot; warnings ${r.stats.warnings}</div></div>`);
+
+  if (r.manifest.length > 0) {
+    const items = r.manifest.map((entry) => {
+      const via = entry.via ? ` <span class="lineage-rel">via ${escapeHtml(entry.via)}</span>` : "";
+      const evolved = entry.evolvedFrom ? ` <span class="lineage-rel">evolved from ${lineageLink(entry.evolvedFrom)}</span>` : "";
+      return `<li style="margin-left:${entry.depth * 14}px"><span class="badge badge-${entry.role}">${entry.role}</span> ${escapeHtml(entry.type)} ${lineageLink(entry.fcid)}${via}${evolved}</li>`;
+    }).join("");
+    parts.push(`<div class="lineage-block"><div class="hint">Composed of (${r.manifest.length})</div><ul class="lineage-list">${items}</ul></div>`);
+  }
+
+  if (r.warnings.length > 0) {
+    const items = r.warnings.map((w) => {
+      const candidates = w.candidates ? `<div class="lineage-io">candidates: ${w.candidates.map(lineageLink).join(" ")}</div>` : "";
+      return `<li><span class="badge badge-warning">${escapeHtml(w.code)}</span> <code>${escapeHtml(w.fcas)}</code> <span class="hint">depth ${w.depth}</span><div class="hint">${escapeHtml(w.message)}</div>${candidates}</li>`;
+    }).join("");
+    parts.push(`<div class="lineage-block"><div class="hint">Warnings (${r.warnings.length})</div><ul class="lineage-list">${items}</ul></div>`);
+  }
+  return parts.join("");
+}
+
+function bindAssembly() {
+  document.querySelectorAll("[data-asm-mode]").forEach((btn) => btn.onclick = () => {
+    assembly.mode = btn.dataset.asmMode;
+    assembly.result = null;
+    assembly.error = "";
+    rerender();
+  });
+
+  const run = async () => { await runAssemble(); rerender(); };
+
+  const target = document.getElementById("asm-target");
+  if (target) {
+    target.oninput = () => { assembly.target = target.value; };
+    target.onkeydown = (event) => { if (event.key === "Enter") void run(); };
+  }
+  const from = document.getElementById("asm-from");
+  if (from) from.oninput = () => { assembly.from = from.value; };
+  const to = document.getElementById("asm-to");
+  if (to) to.oninput = () => { assembly.to = to.value; };
+  const text = document.getElementById("asm-text");
+  if (text) text.oninput = () => { assembly.text = text.value; };
+
+  document.querySelectorAll("[data-asm-role]").forEach((el) => el.onchange = () => {
+    const role = el.dataset.asmRole;
+    assembly.roles = el.checked ? [...new Set([...assembly.roles, role])] : assembly.roles.filter((r) => r !== role);
+  });
+  const expand = document.getElementById("asm-expand");
+  if (expand) expand.onchange = () => { assembly.expand = expand.checked; };
+  const depth = document.getElementById("asm-depth");
+  if (depth) depth.onchange = () => { assembly.maxDepth = Number(depth.value); };
+  const format = document.getElementById("asm-format");
+  if (format) format.onchange = () => { assembly.format = format.value; };
+
+  const runBtn = document.getElementById("asm-run");
+  if (runBtn) runBtn.onclick = () => void run();
+  const clear = document.getElementById("asm-clear");
+  if (clear) clear.onclick = () => {
+    assembly.from = "";
+    assembly.to = "";
+    assembly.roles = [];
+    rerender();
+  };
+}
+
 function renderChatCenter() {
   const selectedChat = findSelectedChatFcidFromFlat(state.visibleFlat, state.selectedFcid);
   const selectedNode = state.visibleFlat.find((n) => n.fcid === state.selectedFcid) || null;
@@ -437,7 +642,10 @@ function projectOptions() {
 
 async function selectFcid(fcid) {
   state.selectedFcid = fcid;
+  const inAssembly = state.activePanel === "assembly";
+  if (inAssembly) setAssemblyTarget(fcid);
   await Promise.all([refreshProjection(), refreshInspector()]);
+  if (inAssembly) await runAssemble();
   rerender();
 }
 
@@ -451,9 +659,12 @@ async function refreshAll() {
 function bindDom() {
   document.querySelectorAll("[data-panel]").forEach((btn) => btn.onclick = () => {
     state.activePanel = btn.dataset.panel;
+    if (state.activePanel === "assembly" && !assembly.target && state.selectedFcid) assembly.target = state.selectedFcid;
     setVisibleFlat();
     rerender();
   });
+
+  bindAssembly();
 
   document.querySelectorAll("[data-lineage-select]").forEach((el) => el.onclick = () => {
     void selectFcid(el.dataset.lineageSelect || "");
@@ -599,12 +810,14 @@ async function copyFcasReference(fcid) {
 }
 
 function render() {
-  const title = state.activePanel === "chat" ? "Chat View" : state.activePanel === "fcas" ? "FCAS Search" : "Document View";
+  const title = state.activePanel === "chat" ? "Chat View" : state.activePanel === "fcas" ? "FCAS Search" : state.activePanel === "assembly" ? "Assembly View" : "Document View";
   const subtitle = state.activePanel === "chat"
     ? "Explore e projete chats e mensagens"
     : state.activePanel === "fcas"
       ? "Parse, resolve e projete referencias FCAS"
-      : "Explore e projete artefatos de documentos";
+      : state.activePanel === "assembly"
+        ? "Monte views completas ou parciais e expanda referencias FCAS"
+        : "Explore e projete artefatos de documentos";
 
   const app = document.getElementById("app");
   if (!app) return;
@@ -617,19 +830,18 @@ function render() {
       </header>
       <main class="main">
         <section class="panel">
-          <div class="panel-head"><div class="tabs"><button data-panel="document" class="${state.activePanel === "document" ? "active" : ""}">Document</button><button data-panel="chat" class="${state.activePanel === "chat" ? "active" : ""}">Chat</button><button data-panel="fcas" class="${state.activePanel === "fcas" ? "active" : ""}">FCAS</button></div><div>${state.toast ? `<span class="toast">${state.toast}</span>` : ""}</div></div>
+          <div class="panel-head"><div class="tabs"><button data-panel="document" class="${state.activePanel === "document" ? "active" : ""}">Document</button><button data-panel="chat" class="${state.activePanel === "chat" ? "active" : ""}">Chat</button><button data-panel="fcas" class="${state.activePanel === "fcas" ? "active" : ""}">FCAS</button><button data-panel="assembly" class="${state.activePanel === "assembly" ? "active" : ""}">Assembly</button></div><div>${state.toast ? `<span class="toast">${state.toast}</span>` : ""}</div></div>
           <div class="panel-grid">
             <div class="panel-col">
-              ${state.activePanel === "fcas" ? `<h3>FCAS Search</h3>${renderFcas()}` : state.activePanel === "document" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-import-document">Import Document</button><button id="open-import-directory">Import Directory</button></div></div>` : `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-create-chat">Create Chat</button></div></div>`}
+              ${state.activePanel === "fcas" ? `<h3>FCAS Search</h3>${renderFcas()}` : state.activePanel === "document" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-import-document">Import Document</button><button id="open-import-directory">Import Directory</button></div></div>` : state.activePanel === "assembly" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3></div>` : `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-create-chat">Create Chat</button></div></div>`}
               ${state.activePanel === "fcas" ? "" : renderTree((fcid) => selectFcid(fcid), (fcid) => copyFcasReference(fcid).then(render))}
             </div>
             <div class="panel-col">
-              ${state.activePanel === "chat" ? renderChatCenter() : `<h3>Projecao</h3><label>Format</label><select id="projection-format"><option value="markdown" ${state.projectionFormat === "markdown" ? "selected" : ""}>markdown</option><option value="text" ${state.projectionFormat === "text" ? "selected" : ""}>text</option><option value="json" ${state.projectionFormat === "json" ? "selected" : ""}>json</option></select><pre>${escapeHtml(previewValue)}</pre>`}
+              ${state.activePanel === "chat" ? renderChatCenter() : state.activePanel === "assembly" ? renderAssemblyCenter() : `<h3>Projecao</h3><label>Format</label><select id="projection-format"><option value="markdown" ${state.projectionFormat === "markdown" ? "selected" : ""}>markdown</option><option value="text" ${state.projectionFormat === "text" ? "selected" : ""}>text</option><option value="json" ${state.projectionFormat === "json" ? "selected" : ""}>json</option></select><pre>${escapeHtml(previewValue)}</pre>`}
             </div>
             <div class="panel-col">
-              ${state.activePanel === "chat" ? "" : ""}
-              <h3 style="margin-top:12px;">Inspector</h3><pre>${escapeHtml(inspectorValue)}</pre>
-              ${renderLineage()}
+              ${state.activePanel === "assembly" ? renderAssemblyDetails() : `<h3 style="margin-top:12px;">Inspector</h3><pre>${escapeHtml(inspectorValue)}</pre>
+              ${renderLineage()}`}
             </div>
           </div>
         </section>
