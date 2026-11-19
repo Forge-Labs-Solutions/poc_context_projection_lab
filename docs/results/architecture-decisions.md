@@ -124,3 +124,144 @@ Aceita
 ## Observacoes
 
 O identificador FCAS de secao continua baseado no titulo (`document.md#Section`), sem codificar o caminho hierarquico completo nesta iteracao.
+
+# ADR-004 - Regras de identidade na evolucao de artefatos
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 04 - Evolution & Lineage
+
+## Contexto
+
+O Lab 04 precisa definir quando uma mudanca preserva o FCID e quando cria um novo. A especificacao (`docs/spec.md`) cita edit, semantic change, split e merge, mas nao define o criterio. O modelo de FCID diz que apenas `SN` e cognitivo; `PG`, `SS` e `MS` sao estruturais e nao carregam conteudo.
+
+## Decisao
+
+- `edit` preserva o FCID; `semantic_change` cria novo FCID com `evolves_from`.
+- A distincao entre edit e semantic change e declarada por quem executa a operacao. O sistema oferece apenas uma sugestao por similaridade textual.
+- Semantic change se aplica somente a `SN`. Estruturais (`SS`, `PG`, `MS`) aceitam edit de metadados, split e merge.
+- Split e merge sempre geram FCIDs novos; nenhuma parte herda o FCID de origem.
+- Split nao pode alterar conteudo (concatenacao normalizada das partes = origem).
+- Merge restrito a artefatos do mesmo tipo, mesmo pai, adjacentes e ativos.
+- Estados possiveis: `active` e `superseded`. O motivo da substituicao e derivado da relacao de lineage.
+- Regenerar uma mensagem cria novo `MS` com `evolves_from`.
+
+## Alternativas consideradas
+
+- Classificacao automatica por similaridade textual como fonte de verdade
+- Classificacao por embeddings/LLM
+- Parte maior do split herdar o FCID de origem
+- Estados especificos por operacao (`split`, `merged`, `revised`)
+
+## Motivo
+
+Similaridade textual nao mede significado (ex.: insercao de uma negacao). Declaracao explicita mantem a regra deterministica e testavel na POC. FCIDs novos em split/merge evitam uma regra assimetrica que mudaria silenciosamente o alvo de referencias. Restringir semantic change a `SN` respeita a separacao entre conteudo (cognitivo) e organizacao (estrutural).
+
+## Impacto
+
+- Artifact Mapping: introduz o primeiro uso de `artifacts.state` diferente de `active`.
+- Projection Engine: projecoes passam a refletir apenas artefatos ativos.
+- FCAS Resolution: referencias para FCIDs substituidos precisam acompanhar o lineage (ver ADR-005).
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Detalhamento em `docs/lab 04.md`. Classificacao semantica real fica para Partes futuras.
+
+Aprovada e implementada em 2026-11-19 (EXP-006). O classificador sugestivo compara palavra a palavra: mesmo numero de palavras e cada diferenca com distancia de edicao <= 2 resulta em sugestao de edit. Eventos usam o prefixo `EVT_`, pois `EV` esta reservado como tipo cognitivo futuro.
+
+# ADR-005 - Lineage em tabelas separadas do grafo estrutural
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 02 - Projection Engine  
+Lab 03 - FCAS Resolution  
+Lab 04 - Evolution & Lineage
+
+## Contexto
+
+`artifact_edges` ja possui `relation_type`, mas o Projection Engine (`loadArtifactWithGraph`) e o FCAS Resolver carregam todas as arestas sem filtrar por tipo. Gravar `evolves_from`/`split_from`/`merged_from` ali faria artefatos antigos aparecerem como filhos nas projecoes e quebraria a busca de pai em `projectFcidToFcas`.
+
+## Decisao
+
+- Criar `artifact_lineage` (descendente, ancestral, relacao, evento) e `evolution_events` (operacao, entradas, saidas, conteudo antes/depois, data).
+- Ao substituir um artefato: marcar `superseded`, remover a aresta `contains` do pai e colocar o(s) resultado(s) na mesma posicao (mesmo pai e `orderIndex`).
+- Artefatos substituidos nunca sao apagados; ficam alcancaveis apenas pelo lineage.
+- Reference Artifacts nunca sao reescritos. O resolver segue o lineage ate os descendentes ativos: um descendente resolve com `evolved: true`; varios (split) retornam candidatos.
+- FCAS de um FCID substituido e projetada como identificador direto (`[[SN_X]]`).
+
+## Alternativas consideradas
+
+- Gravar lineage em `artifact_edges` e filtrar `relation_type = contains` em todos os consumidores
+- Manter a aresta `contains` do artefato substituido e filtrar por `state` nas projecoes
+
+## Motivo
+
+Isolar a historia do grafo estrutural mantem Projection Engine e FCAS Resolver corretos sem mudancas, e evita que um filtro esquecido exiba conteudo obsoleto. Retirar o artefato substituido da estrutura torna "apenas ativos no grafo" uma invariante, em vez de uma regra que cada consumidor precisa lembrar.
+
+## Impacto
+
+- Projection Engine: sem alteracao necessaria.
+- FCAS Resolution: resolver e projecao de FCAS precisam tratar FCIDs `superseded`.
+- Artifact Mapping: nova migration Drizzle com as duas tabelas.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Projecao historica (reconstruir um documento como era antes) nao e suportada por este modelo sem percorrer eventos; fica fora do escopo do Lab 04.
+
+Aprovada e implementada em 2026-11-19 (EXP-006). Migration: `drizzle/0002_living_ghost_rider.sql`. O explorer tree (Lab 01) passou a ignorar artefatos `superseded` como raizes, ja que eles ficam sem pai estrutural.
+
+# ADR-006 - Painel de lineage implementado apenas no runtime da UI (main.js)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 04 - Evolution & Lineage
+
+## Contexto
+
+`uiRoutes` serve `src/ui/index.html`, que carrega `/ui/main.js`. Esse arquivo e uma versao unica e independente da UI. Os modulos `src/ui/*.ts` (`state`, `api`, `inspector`, ...) compilam para `dist/`, mas nao sao servidos e ja divergiram do `main.js` (por exemplo `state.explorer` contra `treeRoots`).
+
+## Decisao
+
+Implementar o painel de lineage somente em `src/ui/main.js` e nao replicar nos modulos `.ts`.
+
+## Alternativas consideradas
+
+- Replicar o painel em `inspector.ts` e `api.ts`
+- Fazer o `main.js` ser gerado a partir dos modulos `.ts`
+
+## Motivo
+
+O `main.js` e o que executa no navegador. Replicar em codigo que nao roda criaria mais uma copia a manter sincronizada, sem efeito observavel.
+
+## Impacto
+
+- Artifact Mapping, Projection Engine e FCAS Resolution: nenhum.
+- UI: os modulos `.ts` continuam sem o painel e podem induzir a erro em quem os editar esperando efeito.
+
+## Status
+
+Revisar depois
+
+## Observacoes
+
+Debito tecnico consciente: unificar a UI em uma unica fonte (gerar o `main.js` dos modulos ou remover os modulos).

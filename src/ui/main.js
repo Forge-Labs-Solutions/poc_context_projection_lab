@@ -14,6 +14,7 @@
 let apiStatus = "checking...";
 let previewValue = "Select an artifact to project.";
 let inspectorValue = "Select an artifact to inspect.";
+let lineageData = null;
 let parseValue = "";
 let resolveValue = "";
 let targetValue = "";
@@ -31,6 +32,7 @@ const api = {
   explorerTree: () => request("/v1/lab01/explorer/tree"),
   artifactByFcid: (fcid) => request(`/v1/artifacts/${encodeURIComponent(fcid)}`),
   explorerByFcid: (fcid) => request(`/v1/lab01/explorer/artifacts/${encodeURIComponent(fcid)}`),
+  lineage: (fcid) => request(`/v1/lab04/lineage/${encodeURIComponent(fcid)}`),
   projectArtifact: (artifactFcid, targetFormat) => request("/v1/lab02/project", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -247,8 +249,10 @@ async function refreshProjection() {
 async function refreshInspector() {
   if (!state.selectedFcid) {
     inspectorValue = "Select an artifact to inspect.";
+    lineageData = null;
     return;
   }
+  lineageData = await api.lineage(state.selectedFcid).catch(() => null);
   try {
     const [base, explorer] = await Promise.all([
       api.artifactByFcid(state.selectedFcid),
@@ -267,6 +271,59 @@ async function refreshInspector() {
   } catch (error) {
     inspectorValue = error && error.message ? error.message : "Inspector failed";
   }
+}
+
+const RELATION_LABEL = {
+  evolves_from: "evolves from",
+  split_from: "split from",
+  merged_from: "merged from",
+};
+
+function lineageLink(fcid) {
+  return `<button class="lineage-fcid" data-lineage-select="${escapeHtml(fcid)}">${escapeHtml(fcid)}</button>`;
+}
+
+function lineageStateBadge(stateName) {
+  return `<span class="badge ${stateName === "superseded" ? "badge-superseded" : "badge-active"}">${escapeHtml(stateName)}</span>`;
+}
+
+function lineageStep(step) {
+  const indent = Math.max(0, step.depth - 1) * 14;
+  return `<li style="margin-left:${indent}px"><span class="lineage-rel">${escapeHtml(RELATION_LABEL[step.relation] || step.relation)}</span> ${lineageLink(step.fcid)} ${lineageStateBadge(step.state)}</li>`;
+}
+
+function lineageEvent(event) {
+  const when = event.createdAt ? new Date(event.createdAt).toLocaleString() : "";
+  const detail = JSON.stringify({ before: event.before, after: event.after }, null, 2);
+  const inputs = (event.inputs || []).map(lineageLink).join(" ");
+  const outputs = (event.outputs || []).map(lineageLink).join(" ");
+  return `<li><div><strong>${escapeHtml(event.operation)}</strong> <span class="hint">${escapeHtml(when)}</span></div><div class="lineage-io">${inputs} &rarr; ${outputs}</div><details><summary>before / after</summary><pre>${escapeHtml(detail)}</pre></details></li>`;
+}
+
+function renderLineage() {
+  if (!state.selectedFcid) return "";
+  if (!lineageData) return `<h3 class="lineage-title">Lineage</h3><div class="hint">Lineage unavailable for this artifact.</div>`;
+
+  const { ancestors = [], descendants = [], current = [], events = [] } = lineageData;
+  const superseded = lineageData.state === "superseded";
+  const parts = [`<h3 class="lineage-title">Lineage ${lineageStateBadge(lineageData.state)}</h3>`];
+
+  if (superseded) {
+    parts.push(`<div class="lineage-block"><div class="hint">Current</div>${current.length > 0 ? `<div>${current.map(lineageLink).join(" ")}</div>` : `<div class="hint">none (no active descendants)</div>`}</div>`);
+  }
+  if (ancestors.length > 0) {
+    parts.push(`<div class="lineage-block"><div class="hint">Ancestors</div><ul class="lineage-list">${ancestors.map(lineageStep).join("")}</ul></div>`);
+  }
+  if (descendants.length > 0) {
+    parts.push(`<div class="lineage-block"><div class="hint">Descendants</div><ul class="lineage-list">${descendants.map((step) => `<li style="margin-left:${Math.max(0, step.depth - 1) * 14}px">${lineageLink(step.fcid)} ${lineageStateBadge(step.state)} <span class="lineage-rel">${escapeHtml(RELATION_LABEL[step.relation] || step.relation)} ${lineageLink(step.via)}</span></li>`).join("")}</ul></div>`);
+  }
+  if (events.length > 0) {
+    parts.push(`<div class="lineage-block"><div class="hint">Events (${events.length})</div><ul class="lineage-list">${events.map(lineageEvent).join("")}</ul></div>`);
+  }
+  if (ancestors.length === 0 && descendants.length === 0 && events.length === 0) {
+    parts.push(`<div class="hint">No evolution recorded. This artifact is in its original form.</div>`);
+  }
+  return parts.join("");
 }
 
 function renderTree(onSelect, onCopy) {
@@ -396,6 +453,10 @@ function bindDom() {
     state.activePanel = btn.dataset.panel;
     setVisibleFlat();
     rerender();
+  });
+
+  document.querySelectorAll("[data-lineage-select]").forEach((el) => el.onclick = () => {
+    void selectFcid(el.dataset.lineageSelect || "");
   });
 
   const reset = document.getElementById("reset-seeds");
@@ -568,6 +629,7 @@ function render() {
             <div class="panel-col">
               ${state.activePanel === "chat" ? "" : ""}
               <h3 style="margin-top:12px;">Inspector</h3><pre>${escapeHtml(inspectorValue)}</pre>
+              ${renderLineage()}
             </div>
           </div>
         </section>

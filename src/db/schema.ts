@@ -113,6 +113,48 @@ export const resourceBindings = sqliteTable(
   ],
 );
 
+export const evolutionEvents = sqliteTable(
+  "evolution_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    operation: text("operation").notNull(),
+    inputsJson: text("inputs_json").notNull(),
+    outputsJson: text("outputs_json").notNull(),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [index("evolution_events_operation_idx").on(table.operation)],
+);
+
+export const artifactLineage = sqliteTable(
+  "artifact_lineage",
+  {
+    descendantFcid: text("descendant_fcid")
+      .notNull()
+      .references(() => artifacts.fcid, { onDelete: "cascade" }),
+    ancestorFcid: text("ancestor_fcid")
+      .notNull()
+      .references(() => artifacts.fcid, { onDelete: "cascade" }),
+    relationType: text("relation_type").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => evolutionEvents.eventId, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.descendantFcid, table.ancestorFcid, table.relationType],
+    }),
+    index("artifact_lineage_descendant_idx").on(table.descendantFcid),
+    index("artifact_lineage_ancestor_idx").on(table.ancestorFcid),
+  ],
+);
+
 export const artifactsRelations = relations(artifacts, ({ many }) => ({
   children: many(artifactEdges),
 }));

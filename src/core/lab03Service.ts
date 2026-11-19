@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { artifactEdges, artifacts, referencesTable, resourceBindings } from "../db/schema.js";
+import { getCurrentFcids } from "./lab04Service.js";
 
 type ParsedFcas =
   | { kind: "artifact"; raw: string; artifactFcid: string }
@@ -115,13 +116,27 @@ async function resolveMessageFromChat(chatFcid: string, index: number): Promise<
   return node[0].fcid;
 }
 
-export async function resolveFcasToFcid(fcas: string): Promise<{ parsed: ParsedFcas; targetFcid: string }> {
+export class FcasAmbiguousError extends Error {
+  constructor(public readonly originalFcid: string, public readonly candidates: string[]) {
+    super("FCAS_AMBIGUOUS");
+  }
+}
+
+export async function resolveFcasToFcid(
+  fcas: string,
+): Promise<{ parsed: ParsedFcas; targetFcid: string; evolvedFrom?: string }> {
   const parsed = parseFcas(fcas);
 
   if (parsed.kind === "artifact") {
     const row = await db.select().from(artifacts).where(eq(artifacts.fcid, parsed.artifactFcid)).limit(1);
     if (!row[0]) throw new Error("FCAS_TARGET_NOT_FOUND");
-    return { parsed, targetFcid: row[0].fcid };
+    if (row[0].state !== "superseded") return { parsed, targetFcid: row[0].fcid };
+
+    // Lab 04 (ADR-005): a superseded FCID resolves through lineage to its active descendants.
+    const { current } = getCurrentFcids(row[0].fcid);
+    if (current.length === 1) return { parsed, targetFcid: current[0], evolvedFrom: row[0].fcid };
+    if (current.length === 0) throw new Error("FCAS_TARGET_NOT_FOUND");
+    throw new FcasAmbiguousError(row[0].fcid, current);
   }
 
   if (parsed.kind === "workspace") {

@@ -603,3 +603,88 @@ Resposta `200`:
   }
 }
 ```
+
+## 6) Lab 04 - Evolution & Lineage
+
+Regras em `docs/lab 04.md` (ADR-004, ADR-005). Erros seguem o formato:
+
+```json
+{ "error": "Artifact SN_A1B2C3 is superseded", "code": "SUPERSEDED", "details": { "fcid": "SN_A1B2C3", "current": ["SN_Q3R8T1"] } }
+```
+
+Codigos: `NOT_FOUND` (404), `SUPERSEDED` (409), `INVALID_OPERATION`, `NO_CHANGE`, `CONTENT_CHANGED`, `NO_PARENT`, `DIFFERENT_PARENTS`, `NOT_ADJACENT` (422). Body invalido retorna 400.
+
+### POST `/v1/lab04/edit`
+Edicao de forma: mantem o FCID. `text` para SN, `title` para SS (exatamente um).
+
+Body:
+```json
+{ "fcid": "SN_A7K2M9", "text": "FCIDs provide persistent identity." }
+```
+
+Resposta `200`:
+```json
+{ "data": { "fcid": "SN_A7K2M9", "revision": 2, "eventId": "EVT_K2M9A7Q1", "classification": { "suggestion": "edit", "reason": "token_level_typos", "similarity": 0.97 } } }
+```
+
+### POST `/v1/lab04/semantic-change`
+Mudanca de significado de um SN: cria novo SN com `evolves_from`.
+
+Body:
+```json
+{ "fcid": "SN_A7K2M9", "text": "FCIDs provide versioned identity." }
+```
+
+Resposta `200`:
+```json
+{ "data": { "fcid": "SN_Q3R8T1", "supersededFcid": "SN_A7K2M9", "eventId": "EVT_...", "classification": { "suggestion": "semantic_change", "reason": "content_changed", "similarity": 0.8 } } }
+```
+
+### POST `/v1/lab04/classify`
+Sugestao (nao decide) entre edit e semantic change para um SN.
+
+Body:
+```json
+{ "fcid": "SN_A7K2M9", "text": "FCIDs provide persistent identity." }
+```
+
+### POST `/v1/lab04/split`
+SN: `parts` (concatenacao normalizada deve ser igual ao original). PG/MS: `boundaries` (indices dos filhos onde cada nova parte comeca).
+
+Body:
+```json
+{ "fcid": "PG_L2X6Q1", "boundaries": [2] }
+```
+
+Resposta `200`:
+```json
+{ "data": { "supersededFcid": "PG_L2X6Q1", "fcids": ["PG_B...", "PG_C..."], "eventId": "EVT_..." } }
+```
+
+### POST `/v1/lab04/merge`
+Junta SN, PG ou MS do mesmo tipo, mesmo pai e adjacentes (MS: mesmo role).
+
+Body:
+```json
+{ "fcids": ["PG_A...", "PG_B..."] }
+```
+
+### POST `/v1/lab04/regenerate`
+Substitui uma mensagem inteira: novo MS com `evolves_from`, na mesma posicao do chat.
+
+Body:
+```json
+{ "fcid": "MS_T2W7K5", "text": "A persistent cognitive identifier." }
+```
+
+### GET `/v1/lab04/lineage/:fcid`
+Retorna `ancestors`, `descendants` (com `relation`, `via`, `depth`, `state`), `current` e `events`.
+
+### GET `/v1/lab04/current/:fcid`
+Retorna os FCIDs ativos atuais (o proprio FCID se estiver `active`).
+
+### GET `/v1/lab04/references/:referenceId`
+Continuidade de um Reference Artifact: `status` = `resolved` | `evolved` | `ambiguous` | `orphaned`, com `currentFcids`.
+
+### Mudanca no Lab 03
+`POST /v1/lab03/resolve` com `[[FCID]]` superseded resolve para o descendente (`evolvedFrom` no retorno) ou retorna `409` com `details.candidates` quando houve split.

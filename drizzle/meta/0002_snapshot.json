@@ -1,0 +1,642 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "502ee985-dd30-4358-8301-2685859caca9",
+  "prevId": "59a1a0d2-f462-4f97-a5c5-0e6b7f79086e",
+  "tables": {
+    "artifact_edges": {
+      "name": "artifact_edges",
+      "columns": {
+        "parent_fcid": {
+          "name": "parent_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "child_fcid": {
+          "name": "child_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "relation_type": {
+          "name": "relation_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'contains'"
+        },
+        "order_index": {
+          "name": "order_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "artifact_edges_parent_idx": {
+          "name": "artifact_edges_parent_idx",
+          "columns": [
+            "parent_fcid"
+          ],
+          "isUnique": false
+        },
+        "artifact_edges_child_idx": {
+          "name": "artifact_edges_child_idx",
+          "columns": [
+            "child_fcid"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "artifact_edges_parent_fcid_artifacts_fcid_fk": {
+          "name": "artifact_edges_parent_fcid_artifacts_fcid_fk",
+          "tableFrom": "artifact_edges",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "parent_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "artifact_edges_child_fcid_artifacts_fcid_fk": {
+          "name": "artifact_edges_child_fcid_artifacts_fcid_fk",
+          "tableFrom": "artifact_edges",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "child_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "artifact_edges_parent_fcid_child_fcid_relation_type_pk": {
+          "columns": [
+            "parent_fcid",
+            "child_fcid",
+            "relation_type"
+          ],
+          "name": "artifact_edges_parent_fcid_child_fcid_relation_type_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "artifact_lineage": {
+      "name": "artifact_lineage",
+      "columns": {
+        "descendant_fcid": {
+          "name": "descendant_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ancestor_fcid": {
+          "name": "ancestor_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "relation_type": {
+          "name": "relation_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "artifact_lineage_descendant_idx": {
+          "name": "artifact_lineage_descendant_idx",
+          "columns": [
+            "descendant_fcid"
+          ],
+          "isUnique": false
+        },
+        "artifact_lineage_ancestor_idx": {
+          "name": "artifact_lineage_ancestor_idx",
+          "columns": [
+            "ancestor_fcid"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "artifact_lineage_descendant_fcid_artifacts_fcid_fk": {
+          "name": "artifact_lineage_descendant_fcid_artifacts_fcid_fk",
+          "tableFrom": "artifact_lineage",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "descendant_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "artifact_lineage_ancestor_fcid_artifacts_fcid_fk": {
+          "name": "artifact_lineage_ancestor_fcid_artifacts_fcid_fk",
+          "tableFrom": "artifact_lineage",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "ancestor_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "artifact_lineage_event_id_evolution_events_event_id_fk": {
+          "name": "artifact_lineage_event_id_evolution_events_event_id_fk",
+          "tableFrom": "artifact_lineage",
+          "tableTo": "evolution_events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "event_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "artifact_lineage_descendant_fcid_ancestor_fcid_relation_type_pk": {
+          "columns": [
+            "descendant_fcid",
+            "ancestor_fcid",
+            "relation_type"
+          ],
+          "name": "artifact_lineage_descendant_fcid_ancestor_fcid_relation_type_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "artifacts": {
+      "name": "artifacts",
+      "columns": {
+        "fcid": {
+          "name": "fcid",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "metadata_json": {
+          "name": "metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "evolution_events": {
+      "name": "evolution_events",
+      "columns": {
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "operation": {
+          "name": "operation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "inputs_json": {
+          "name": "inputs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "outputs_json": {
+          "name": "outputs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_json": {
+          "name": "before_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_json": {
+          "name": "after_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "evolution_events_operation_idx": {
+          "name": "evolution_events_operation_idx",
+          "columns": [
+            "operation"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "projections": {
+      "name": "projections",
+      "columns": {
+        "projection_id": {
+          "name": "projection_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "root_fcid": {
+          "name": "root_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_ref": {
+          "name": "source_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "metadata_json": {
+          "name": "metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "projections_root_idx": {
+          "name": "projections_root_idx",
+          "columns": [
+            "root_fcid"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "projections_root_fcid_artifacts_fcid_fk": {
+          "name": "projections_root_fcid_artifacts_fcid_fk",
+          "tableFrom": "projections",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "root_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "references": {
+      "name": "references",
+      "columns": {
+        "reference_id": {
+          "name": "reference_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_fcid": {
+          "name": "source_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fcas_raw": {
+          "name": "fcas_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_fcid": {
+          "name": "target_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'resolved'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "references_source_idx": {
+          "name": "references_source_idx",
+          "columns": [
+            "source_fcid"
+          ],
+          "isUnique": false
+        },
+        "references_target_idx": {
+          "name": "references_target_idx",
+          "columns": [
+            "target_fcid"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "references_source_fcid_artifacts_fcid_fk": {
+          "name": "references_source_fcid_artifacts_fcid_fk",
+          "tableFrom": "references",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "source_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "references_target_fcid_artifacts_fcid_fk": {
+          "name": "references_target_fcid_artifacts_fcid_fk",
+          "tableFrom": "references",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "target_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "resource_bindings": {
+      "name": "resource_bindings",
+      "columns": {
+        "binding_id": {
+          "name": "binding_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resource_key": {
+          "name": "resource_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_type": {
+          "name": "artifact_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_fcid": {
+          "name": "artifact_fcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "projection_kind": {
+          "name": "projection_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "resource_bindings_resource_idx": {
+          "name": "resource_bindings_resource_idx",
+          "columns": [
+            "resource_key"
+          ],
+          "isUnique": false
+        },
+        "resource_bindings_artifact_idx": {
+          "name": "resource_bindings_artifact_idx",
+          "columns": [
+            "artifact_fcid"
+          ],
+          "isUnique": false
+        },
+        "resource_bindings_unique_idx": {
+          "name": "resource_bindings_unique_idx",
+          "columns": [
+            "resource_key",
+            "artifact_type"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "resource_bindings_artifact_fcid_artifacts_fcid_fk": {
+          "name": "resource_bindings_artifact_fcid_artifacts_fcid_fk",
+          "tableFrom": "resource_bindings",
+          "tableTo": "artifacts",
+          "columnsFrom": [
+            "artifact_fcid"
+          ],
+          "columnsTo": [
+            "fcid"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

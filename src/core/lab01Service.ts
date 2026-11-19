@@ -34,7 +34,7 @@ async function createFcid(type: ArtifactType): Promise<string> {
   throw new Error("Unable to generate unique FCID");
 }
 
-async function ensureArtifact(type: ArtifactType, metadata?: Record<string, unknown>): Promise<string> {
+export async function ensureArtifact(type: ArtifactType, metadata?: Record<string, unknown>): Promise<string> {
   const fcid = await createFcid(type);
   await db.insert(artifacts).values({
     fcid,
@@ -175,24 +175,27 @@ export async function addMessageToChat(
 
   const msg = await ensureArtifact("MS", { role: input.role });
   await link(chatFcid, msg, Date.now());
+  await persistMessageContent(msg, input.text);
+  return { messageFcid: msg };
+}
 
-  const markdownSections = parseMarkdownSections(input.text);
+export async function persistMessageContent(msgFcid: string, text: string): Promise<void> {
+  const markdownSections = parseMarkdownSections(text);
   if (markdownSections.length > 0) {
     for (let s = 0; s < markdownSections.length; s += 1) {
-      await persistSection(markdownSections[s], msg, s);
+      await persistSection(markdownSections[s], msgFcid, s);
     }
-  } else {
-    const paragraphs = parseParagraphsToSentences(input.text);
-    for (let p = 0; p < paragraphs.length; p += 1) {
-      const pg = await ensureArtifact("PG");
-      await link(msg, pg, p);
-      for (let n = 0; n < paragraphs[p].length; n += 1) {
-        const sn = await ensureArtifact("SN", { text: paragraphs[p][n] });
-        await link(pg, sn, n);
-      }
+    return;
+  }
+  const paragraphs = parseParagraphsToSentences(text);
+  for (let p = 0; p < paragraphs.length; p += 1) {
+    const pg = await ensureArtifact("PG");
+    await link(msgFcid, pg, p);
+    for (let n = 0; n < paragraphs[p].length; n += 1) {
+      const sn = await ensureArtifact("SN", { text: paragraphs[p][n] });
+      await link(pg, sn, n);
     }
   }
-  return { messageFcid: msg };
 }
 
 type ParsedParagraph = { sentences: string[] };
@@ -409,7 +412,9 @@ export async function artifactExplorerTree(): Promise<{ roots: TreeNode[]; stats
     };
   };
 
+  // Superseded artifacts (Lab 04) leave the structural graph; they are reachable only through lineage.
   const rootFcids = nodes
+    .filter((node) => node.state !== "superseded")
     .filter((node) => (parentsByChild.get(node.fcid) ?? []).length === 0)
     .map((node) => node.fcid);
 

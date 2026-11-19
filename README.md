@@ -54,6 +54,20 @@ npm run dev
 - `GET /v1/lab01/explorer/artifacts`
 - `GET /v1/lab01/explorer/artifacts/:fcid`
 - `GET /v1/lab01/validation/:projectionId`
+- `POST /v1/lab02/project`
+- `POST /v1/lab03/parse`
+- `POST /v1/lab03/resolve`
+- `POST /v1/lab03/references`
+- `POST /v1/lab03/project-fcas`
+- `POST /v1/lab04/edit`
+- `POST /v1/lab04/semantic-change`
+- `POST /v1/lab04/classify`
+- `POST /v1/lab04/split`
+- `POST /v1/lab04/merge`
+- `POST /v1/lab04/regenerate`
+- `GET /v1/lab04/lineage/:fcid`
+- `GET /v1/lab04/current/:fcid`
+- `GET /v1/lab04/references/:referenceId`
 
 Documentacao basica:
 - `docs/endpoints.md`

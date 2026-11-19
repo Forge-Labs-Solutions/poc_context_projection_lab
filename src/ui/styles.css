@@ -135,3 +135,16 @@ pre { white-space: pre-wrap; margin: 0; background: #f7faff; border: 1px solid v
   .panel-col { border-right: 0; border-bottom: 1px solid var(--line); }
   .panel-col:last-child { border-bottom: 0; }
 }
+
+.lineage-title { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
+.lineage-block { margin-bottom: 10px; }
+.lineage-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.lineage-rel { color: var(--muted); font-size: 12px; }
+.lineage-io { font-size: 12px; margin: 2px 0; }
+.lineage-fcid { border: 0; background: transparent; padding: 0; color: var(--accent); font-family: Consolas, monospace; font-size: 12px; text-decoration: underline; }
+.lineage-list details { margin-top: 2px; }
+.lineage-list summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.lineage-list pre { max-height: 180px; font-size: 11px; }
+.badge { font-size: 11px; font-weight: 400; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); }
+.badge-active { background: #e9f7ef; color: var(--ok); border-color: #bfe9cd; }
+.badge-superseded { background: #fff4e0; color: #9a5b00; border-color: #f2d9a8; }

@@ -278,3 +278,124 @@ Validado por implementacao e cobertura automatizada adicionada
 ## Pendencias
 
 - Nenhuma.
+
+# EXP-006 - Validacao do Lab 04 (Evolution & Lineage)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 04 - Evolution & Lineage  
+Lab 03 - FCAS Resolution
+
+## Hipotese
+
+As regras de identidade da ADR-004 e o armazenamento de lineage da ADR-005 permitem evoluir artefatos de documentos e chats (edit, semantic change, split, merge, regenerate) mantendo projecoes corretas, historia rastreavel e referencias resolviveis.
+
+## Procedimento
+
+1. Criar as tabelas `evolution_events` e `artifact_lineage` (migration `0002_living_ghost_rider`).
+2. Implementar o Evolution Engine em `src/core/lab04Service.ts` e as rotas `/v1/lab04/*`.
+3. Ajustar o FCAS Resolver para seguir lineage em `[[FCID]]` superseded.
+4. Escrever os cenarios C01-C16 de `docs/lab 04.md` em `src/tests/lab04.test.ts`, mais 3 testes extras (operacoes invalidas e raizes do explorer, merge de SN, reset das tabelas novas).
+5. Executar `npx vitest run` contra uma copia do banco com a migration aplicada.
+
+## Entrada
+
+- Documento `# Evolution` com 3 paragrafos e 5 sentencas, importado uma vez por cenario.
+- Chats `::evo-chat-edit` e `::evo-chat-regen`.
+
+## Resultado observado
+
+- 40 de 40 testes passaram (21 existentes + 19 do Lab 04).
+- `tsc --noEmit` sem erros.
+- Edit mantem FCID, incrementa `revision` e guarda o texto anterior no evento.
+- Semantic change, split, merge e regenerate criam FCIDs novos na posicao original; as origens ficam `superseded` e saem das projecoes.
+- Split de PG preserva os FCIDs dos SN.
+- `[[::chat<2>]]` resolve para o MS regenerado.
+- Referencia para SN substituido: `evolved` com 1 descendente, `ambiguous` (HTTP 409 no resolve) apos split.
+- Classificador: correcao de digitacao e normalizacao sugerem edit; troca de palavra e insercao de negacao sugerem semantic change; "now" -> "not" sugere edit (limitacao C16 confirmada).
+
+## Resultado esperado
+
+Todas as hipoteses do Lab 04 validadas por testes automatizados.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/core/lab04Service.ts`, `src/core/lab04Schemas.ts`, `src/api/routes/lab04Routes.ts`.
+- `src/core/lab03Service.ts` e `src/api/routes/lab03Routes.ts` (resolucao via lineage).
+- `src/core/lab01Service.ts` (`persistMessageContent` extraido; raizes do explorer sem `superseded`).
+- `src/tests/lab04.test.ts`.
+- `vitest.config.ts` com `fileParallelism: false`, pois os dois arquivos de teste resetam o mesmo banco.
+
+## Decisoes derivadas
+
+- ADR-004
+- ADR-005
+
+## Pendencias
+
+- Reimportacao com o mesmo `resourceKey` continua duplicando a arvore (fora do escopo do Lab 04).
+- Os modulos `src/ui/*.ts` nao refletem o painel de lineage (ver ADR-006).
+
+# EXP-007 - Validacao visual do painel de lineage do Lab 04
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 04 - Evolution & Lineage  
+Lab 03 - FCAS Resolution
+
+## Hipotese
+
+O Inspector da UI consegue exibir o historico de um FCID e permitir navegar ate artefatos substituidos, sem acesso direto ao banco.
+
+## Procedimento
+
+1. Subir a API (build compilado) apontando para uma copia do banco, sem tocar em `data/forgeos.db`.
+2. Pela API, importar um documento e executar: edit e semantic change em um SN, e split de outro SN com uma referencia apontando para ele.
+3. Na UI, abrir a aba FCAS e resolver `[[SN_substituido]]`.
+4. Seguir os links de lineage ate o artefato original e ate a origem do split.
+5. Expandir o before/after do evento e ler o console do navegador.
+
+## Entrada
+
+- Copia do banco com 74 artefatos mais o documento `ui-demo.md`.
+
+## Resultado observado
+
+- Artefato sem evolucao: badge `active` e a mensagem "No evolution recorded".
+- `[[SN_substituido]]` resolveu para o descendente (`evolvedFrom` exibido) e o painel mostrou o ancestral `superseded` e o evento `semantic_change`.
+- Artefato substituido por semantic change: `Current` com o novo SN, descendente `active` e 2 eventos (`edit`, `semantic_change`).
+- Origem de um split: `Current` com os 2 SN, 2 descendentes `split from` e o evento `split` com before/after expansivel.
+- Console do navegador sem erros.
+
+## Resultado esperado
+
+Historico legivel e navegavel a partir de qualquer FCID, ativo ou substituido.
+
+## Conclusao
+
+Validado
+
+## Evidencias
+
+- `src/ui/main.js` (`renderLineage`, `refreshInspector`) e `src/ui/styles.css`.
+- Execucao manual no painel do navegador.
+
+## Decisoes derivadas
+
+- ADR-006
+
+## Pendencias
+
+- Nao verificado: layout em largura estreita (menos de 1180px) e a abertura do before/after, que e perdida quando a UI e redesenhada.

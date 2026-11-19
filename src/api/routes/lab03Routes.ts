@@ -7,6 +7,7 @@ import {
 } from "../../core/lab03Schemas.js";
 import {
   createReferenceArtifact,
+  FcasAmbiguousError,
   parseFcas,
   projectFcidToFcas,
   resolveFcasToFcid,
@@ -33,6 +34,12 @@ export function registerLab03Routes(app: FastifyInstance): void {
       if (error instanceof Error && error.message === "FCAS_INVALID") {
         return reply.code(400).send({ error: "Invalid FCAS syntax" });
       }
+      if (error instanceof FcasAmbiguousError) {
+        return reply.code(409).send({
+          error: "FCAS target was split; resolution is ambiguous",
+          details: { originalFcid: error.originalFcid, candidates: error.candidates },
+        });
+      }
       return reply.code(404).send({ error: "FCAS target not found" });
     }
   });
@@ -46,6 +53,12 @@ export function registerLab03Routes(app: FastifyInstance): void {
     } catch (error) {
       if (error instanceof Error && error.message === "SOURCE_NOT_FOUND") {
         return reply.code(404).send({ error: "Source artifact not found" });
+      }
+      if (error instanceof FcasAmbiguousError) {
+        return reply.code(409).send({
+          error: "FCAS target was split; resolution is ambiguous",
+          details: { originalFcid: error.originalFcid, candidates: error.candidates },
+        });
       }
       return reply.code(404).send({ error: "FCAS target not found" });
     }
