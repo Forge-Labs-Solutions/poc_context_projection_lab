@@ -1014,3 +1014,11 @@ View
 ```
 
 estabelecendo a montagem como a camada que transforma artefatos persistentes em views completas ou parciais, sem alterar a fonte de verdade.
+
+---
+
+# Atualização de 2026-11-19
+
+- `[[::chat<A-B>]]` expande a janela de mensagens de A a B (intervalo fechado, a partir de 1); no manifesto a entrada traz `selection`. Janela fora da conversa vira o aviso `INVALID_RANGE` e o texto fica literal. Como alvo da montagem, equivale a `range`; informar os dois retorna 400 (ADR-017).
+- Alvo substituído sem descendente ativo vira o aviso `ORPHANED` (token literal), com `cause` e `candidates`; na montagem, erro 409 `ORPHANED` (ADR-019).
+- `[[#slug]]` e `[[@nome]]` ficam literais com `UNSUPPORTED_TARGET`; nome de diretório repetido vira `AMBIGUOUS` (ADR-017).

@@ -16,3 +16,21 @@ export const createReferenceSchema = z.object({
 export const projectFcidToFcasSchema = z.object({
   targetFcid: z.string().min(1),
 });
+
+export const renameSchema = z
+  .object({
+    fcid: z.string().min(1),
+    resourceKey: z.string().min(1).optional(),
+    title: z.string().min(1).optional(),
+  })
+  .refine((value) => value.resourceKey !== undefined || value.title !== undefined, { message: "Give a resourceKey, a title or both" });
+
+export const moveSchema = z.object({
+  fcid: z.string().min(1),
+  newParentFcid: z.string().min(1),
+});
+
+export const reorderSchema = z.object({
+  parentFcid: z.string().min(1),
+  childFcids: z.array(z.string().min(1)).max(5000),
+});

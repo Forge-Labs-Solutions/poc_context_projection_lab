@@ -1,13 +1,21 @@
-import { FcasAmbiguousError, resolveFcasToFcid } from "./lab03Service.js";
+import {
+  FcasAmbiguousError,
+  FcasNameAmbiguousError,
+  FcasOrphanedError,
+  FcasUnsupportedError,
+  resolveFcasToFcid,
+} from "./lab03Service.js";
 import { loadArtifactWithGraph, renderArtifactNode } from "./projectionService.js";
 
-// Lab 05 — Context Assembly. Rules: docs/lab 05.md, ADR-007 to ADR-009.
+// Lab 05 — Context Assembly. Rules: docs/lab 05.md, ADR-007 to ADR-009, ADR-017 and ADR-019.
 
 export type AssemblyFormat = "markdown" | "text";
 export type WarningCode =
   | "NOT_FOUND"
   | "UNSUPPORTED_TARGET"
   | "AMBIGUOUS"
+  | "ORPHANED"
+  | "INVALID_RANGE"
   | "CYCLE"
   | "DEPTH_EXCEEDED"
   | "BLOCK_REFERENCE_INLINE";
@@ -17,6 +25,7 @@ export type Lab05ErrorCode =
   | "NOT_FOUND"
   | "UNSUPPORTED_SCOPE"
   | "AMBIGUOUS"
+  | "ORPHANED"
   | "INVALID_RANGE"
   | "NO_CHILDREN"
   | "ROLES_NOT_APPLICABLE";
@@ -37,6 +46,8 @@ export type AssemblyWarning = {
   depth: number;
   message: string;
   candidates?: string[];
+  /** ORPHANED only: the event that retired the target, when the log has one (ADR-019). */
+  cause?: { eventId: string; operation: string; supersededRoot: string };
 };
 
 export type ManifestEntry = {
@@ -46,6 +57,8 @@ export type ManifestEntry = {
   depth: number;
   via?: string;
   evolvedFrom?: string;
+  /** Set when a chat was expanded through a range such as `[[::chat<2-4>]]`. */
+  selection?: { from: number; to: number; total: number };
 };
 
 export type Selection = { from: number; to: number; total: number; roles: string[] | null };
@@ -121,8 +134,23 @@ function roleOf(node: ArtifactRow): string {
   }
 }
 
-function warn(ctx: Ctx, code: WarningCode, fcas: string, depth: number, message: string, candidates?: string[]): null {
-  ctx.warnings.push({ code, fcas, depth, message, ...(candidates ? { candidates } : {}) });
+function warn(
+  ctx: Ctx,
+  code: WarningCode,
+  fcas: string,
+  depth: number,
+  message: string,
+  candidates?: string[],
+  cause?: AssemblyWarning["cause"],
+): null {
+  ctx.warnings.push({
+    code,
+    fcas,
+    depth,
+    message,
+    ...(candidates ? { candidates } : {}),
+    ...(cause ? { cause } : {}),
+  });
   return null;
 }
 
@@ -137,7 +165,7 @@ export function normalizeTarget(target: string): string {
 
 function selectChildren(
   root: ArtifactRow,
-  graph: Graph,
+  graph: Pick<Graph, "nodesMap" | "childrenMap">,
   range: AssembleInput["range"],
   roles: AssembleInput["roles"],
 ): { window: ArtifactRow[]; selection: Selection } {
@@ -180,6 +208,23 @@ async function expandToken(raw: string, depth: number, stack: string[], ctx: Ctx
     if (error instanceof FcasAmbiguousError) {
       return warn(ctx, "AMBIGUOUS", raw, depth, `${error.originalFcid} was split; reference is ambiguous`, error.candidates);
     }
+    if (error instanceof FcasNameAmbiguousError) {
+      return warn(ctx, "AMBIGUOUS", raw, depth, `The name "${error.name}" matches more than one artifact`, error.candidates);
+    }
+    if (error instanceof FcasOrphanedError) {
+      return warn(
+        ctx,
+        "ORPHANED",
+        raw,
+        depth,
+        `${error.originalFcid} was superseded and has no active successor`,
+        error.candidates.length > 0 ? error.candidates : undefined,
+        error.cause ?? undefined,
+      );
+    }
+    if (error instanceof FcasUnsupportedError) {
+      return warn(ctx, "UNSUPPORTED_TARGET", raw, depth, `The ${error.syntax} syntax is not supported by this POC`);
+    }
     if (error instanceof Error && (error.message === "FCAS_TARGET_NOT_FOUND" || error.message === "FCAS_INVALID")) {
       return warn(ctx, "NOT_FOUND", raw, depth, "Reference target not found");
     }
@@ -197,7 +242,27 @@ async function expandToken(raw: string, depth: number, stack: string[], ctx: Ctx
   if (stack.includes(node.fcid)) return warn(ctx, "CYCLE", raw, depth, `${node.fcid} is already being expanded`);
   if (depth + 1 > ctx.maxDepth) return warn(ctx, "DEPTH_EXCEEDED", raw, depth, `maxDepth ${ctx.maxDepth} reached`);
 
-  let content = render(node, ctx);
+  let content: string;
+  let selection: ManifestEntry["selection"];
+  if (resolved.range) {
+    // `[[::chat<A-B>]]`: only that window of the chat is expanded (ADR-017).
+    let picked: ReturnType<typeof selectChildren>;
+    try {
+      picked = selectChildren(node, ctx, resolved.range, undefined);
+    } catch (error) {
+      if (error instanceof Lab05Error && error.code === "INVALID_RANGE") {
+        return warn(ctx, "INVALID_RANGE", raw, depth, error.message);
+      }
+      throw error;
+    }
+    content = picked.window
+      .map((child) => render(child, ctx))
+      .filter((part) => part.length > 0)
+      .join("\n\n");
+    selection = { from: picked.selection.from, to: picked.selection.to, total: picked.selection.total };
+  } else {
+    content = render(node, ctx);
+  }
   if (inline) content = content.replace(/\s+/g, " ").trim();
 
   ctx.manifest.push({
@@ -207,6 +272,7 @@ async function expandToken(raw: string, depth: number, stack: string[], ctx: Ctx
     depth: depth + 1,
     via: raw,
     ...(resolved.evolvedFrom ? { evolvedFrom: resolved.evolvedFrom } : {}),
+    ...(selection ? { selection } : {}),
   });
   ctx.expanded += 1;
   return expandText(content, depth + 1, [...stack, node.fcid], ctx, inline);
@@ -259,6 +325,22 @@ export async function assemble(input: AssembleInput): Promise<AssembleResult> {
         candidates: error.candidates,
       });
     }
+    if (error instanceof FcasNameAmbiguousError) {
+      throw new Lab05Error("AMBIGUOUS", `The name "${error.name}" matches more than one artifact`, {
+        name: error.name,
+        candidates: error.candidates,
+      });
+    }
+    if (error instanceof FcasOrphanedError) {
+      throw new Lab05Error("ORPHANED", "Target was superseded and has no active successor", {
+        originalFcid: error.originalFcid,
+        cause: error.cause,
+        candidates: error.candidates,
+      });
+    }
+    if (error instanceof FcasUnsupportedError) {
+      throw new Lab05Error("INVALID_TARGET", `The ${error.syntax} syntax is not supported by this POC`);
+    }
     if (error instanceof Error && error.message === "FCAS_INVALID") {
       throw new Lab05Error("INVALID_TARGET", "Invalid FCAS syntax");
     }
@@ -267,6 +349,12 @@ export async function assemble(input: AssembleInput): Promise<AssembleResult> {
     }
     throw error;
   }
+
+  // A range written in the target (`[[::chat<2-4>]]`) is the same window as `input.range`; giving both is ambiguous.
+  if (resolved.range && input.range) {
+    throw new Lab05Error("INVALID_TARGET", "The target already has a range; do not pass range as well");
+  }
+  const range = input.range ?? resolved.range;
 
   const graph = await loadArtifactWithGraph(resolved.targetFcid);
   const root = graph.root;
@@ -295,8 +383,8 @@ export async function assemble(input: AssembleInput): Promise<AssembleResult> {
 
   let content: string;
   let selection: Selection | null = null;
-  if (input.range || input.roles) {
-    const picked = selectChildren(root, graph, input.range, input.roles);
+  if (range || input.roles) {
+    const picked = selectChildren(root, graph, range, input.roles);
     selection = picked.selection;
     const joiner = root.type === "PG" ? " " : "\n\n";
     content = picked.window

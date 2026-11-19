@@ -933,7 +933,7 @@ Este sub-lab conecta o Lab 04 ao Lab 03.
 ```txt
 Reference Artifacts nunca são reescritos.
 
-RF_A
+REF_A
 └─ target: SN_A   (continua apontando para SN_A)
 ```
 

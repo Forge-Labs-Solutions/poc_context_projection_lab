@@ -26,6 +26,20 @@ export const addChatMessageSchema = z.object({
   text: z.string().min(1),
 });
 
+export const importChatSchema = z.object({
+  resourceKey: z.string().min(1),
+  title: z.string().min(1),
+  messages: z
+    .array(
+      z.object({
+        fcid: z.string().min(1).optional(),
+        role: z.enum(["user", "assistant", "system"]),
+        text: z.string().min(1),
+      }),
+    )
+    .max(5000),
+});
+
 export const removeProjectionSchema = z.object({
   projectionId: z.string().min(1),
 });

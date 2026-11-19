@@ -148,6 +148,14 @@ DC
            └─ SN
 ```
 
+Texto antes do primeiro título, e documento sem nenhum título, ficam sem SS: o PG é filho direto do DC (ADR-016 e ADR-020).
+
+```txt
+DC
+ └─ PG
+      └─ SN
+```
+
 ---
 
 ## Chat

@@ -8,6 +8,7 @@ import {
   referencesTable,
   resourceBindings,
 } from "../db/schema.js";
+import { type ChangeSummary, ensureChatProjection, reimportDocument } from "./lab015Service.js";
 
 const STRUCTURAL_TYPES = new Set(["WS", "PJ", "DR", "DC", "CH", "MS", "SS", "PG"]);
 
@@ -76,15 +77,10 @@ async function link(parentFcid: string, childFcid: string, orderIndex = 0): Prom
 
 export async function createChat(resourceKey: string, title: string): Promise<{ chatFcid: string; projectionId: string }> {
   const chatFcid = await ensureBinding(resourceKey, "CH", "chat");
-  const projectionId = `PROJ_${randomSuffix(8)}`;
-  await db.insert(projections).values({
-    projectionId,
-    kind: "chat",
-    rootFcid: chatFcid,
-    sourceRef: resourceKey,
-    status: "active",
-    metadataJson: JSON.stringify({ title }),
-  });
+  // ADR-021: a chat hangs from the workspace, like a document imported without a parent.
+  await link(await resolveWorkspaceFcid(), chatFcid, Date.now());
+  // Creating the same chat again reuses its projection (Lab 01.5).
+  const projectionId = ensureChatProjection({ chatFcid, resourceKey, title });
   return { chatFcid, projectionId };
 }
 
@@ -93,8 +89,27 @@ export async function importDocument(input: {
   title: string;
   text: string;
   parentFcid?: string;
-}): Promise<{ rootFcid: string; projectionId: string }> {
+}): Promise<{ rootFcid: string; projectionId: string; reimport: ChangeSummary | null }> {
   const parentFcid = await resolveParentForImport(input.parentFcid);
+
+  // Lab 01.5: a resource that is already bound is brought to the new text instead of being mapped again.
+  const bound = await db
+    .select()
+    .from(resourceBindings)
+    .where(and(eq(resourceBindings.resourceKey, input.resourceKey), eq(resourceBindings.artifactType, "DC")))
+    .limit(1);
+  if (bound[0]) {
+    const result = reimportDocument({
+      rootFcid: bound[0].artifactFcid,
+      resourceKey: input.resourceKey,
+      title: input.title,
+      text: input.text,
+      parentFcid,
+      explicitParent: input.parentFcid !== undefined,
+    });
+    return { rootFcid: bound[0].artifactFcid, projectionId: result.projectionId, reimport: result.summary };
+  }
+
   const rootFcid = await ensureBinding(input.resourceKey, "DC", "document");
   const projectionId = `PROJ_${randomSuffix(8)}`;
   await db.insert(projections).values({
@@ -120,20 +135,28 @@ export async function importDocument(input: {
     }
   }
 
-  return { rootFcid, projectionId };
+  return { rootFcid, projectionId, reimport: null };
 }
 
 export async function importDirectory(input: {
   title: string;
   parentFcid?: string;
   documents: Array<{ resourceKey: string; title: string; text: string }>;
-}): Promise<{ directoryFcid: string; parentFcid: string; documents: Array<{ rootFcid: string; projectionId: string }> }> {
+}): Promise<{
+  directoryFcid: string;
+  parentFcid: string;
+  documents: Array<{ rootFcid: string; projectionId: string; reimport: ChangeSummary | null }>;
+}> {
   const parentFcid = await resolveParentForImport(input.parentFcid);
 
-  const directoryFcid = await ensureArtifact("DR", { title: input.title });
-  await link(parentFcid, directoryFcid, Date.now());
+  // Lab 01.5: a directory is identified by its parent and exact title, so importing it again reuses it.
+  let directoryFcid = await findDirectory(parentFcid, input.title);
+  if (!directoryFcid) {
+    directoryFcid = await ensureArtifact("DR", { title: input.title });
+    await link(parentFcid, directoryFcid, Date.now());
+  }
 
-  const importedDocs: Array<{ rootFcid: string; projectionId: string }> = [];
+  const importedDocs: Array<{ rootFcid: string; projectionId: string; reimport: ChangeSummary | null }> = [];
   for (const doc of input.documents) {
     const imported = await importDocument({
       ...doc,
@@ -143,6 +166,24 @@ export async function importDirectory(input: {
   }
 
   return { directoryFcid, parentFcid, documents: importedDocs };
+}
+
+async function findDirectory(parentFcid: string, title: string): Promise<string | null> {
+  const edges = await db
+    .select()
+    .from(artifactEdges)
+    .where(and(eq(artifactEdges.parentFcid, parentFcid), eq(artifactEdges.relationType, "contains")));
+  for (const edge of edges) {
+    const child = await db.select().from(artifacts).where(eq(artifacts.fcid, edge.childFcid)).limit(1);
+    if (!child[0] || child[0].type !== "DR" || child[0].state !== "active") continue;
+    try {
+      const meta = child[0].metadataJson ? (JSON.parse(child[0].metadataJson) as Record<string, unknown>) : {};
+      if (meta.title === title) return child[0].fcid;
+    } catch {
+      // A directory with unreadable metadata is not a match.
+    }
+  }
+  return null;
 }
 
 async function resolveWorkspaceFcid(): Promise<string> {
@@ -187,12 +228,12 @@ export async function persistMessageContent(msgFcid: string, text: string): Prom
   }
 }
 
-type ParsedParagraph = { sentences: string[] };
-type ParsedSectionBlock =
+export type ParsedParagraph = { sentences: string[] };
+export type ParsedSectionBlock =
   | { kind: "paragraph"; paragraph: ParsedParagraph }
   | { kind: "section"; section: ParsedSection };
 
-type ParsedSection = {
+export type ParsedSection = {
   title: string;
   level: number;
   children: ParsedSectionBlock[];
@@ -246,7 +287,7 @@ async function persistSection(section: ParsedSection, parentFcid: string, orderI
   return ss;
 }
 
-function parseMarkdownSections(text: string): { preamble: ParsedParagraph[]; sections: ParsedSection[] } {
+export function parseMarkdownSections(text: string): { preamble: ParsedParagraph[]; sections: ParsedSection[] } {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const roots: ParsedSection[] = [];
   const preamble: ParsedParagraph[] = [];
@@ -301,7 +342,7 @@ function parseMarkdownSections(text: string): { preamble: ParsedParagraph[]; sec
   return { preamble, sections: roots };
 }
 
-function parseParagraphsToSentences(text: string): string[][] {
+export function parseParagraphsToSentences(text: string): string[][] {
   const paragraphs = text
     .replace(/\r\n/g, "\n")
     .split(/\n\s*\n/g)
@@ -322,11 +363,9 @@ export async function removeProjection(projectionId: string): Promise<boolean> {
   const row = await db.select().from(projections).where(eq(projections.projectionId, projectionId)).limit(1);
   if (row.length === 0) return false;
 
-  await db.update(projections).set({ status: "removed" }).where(eq(projections.projectionId, projectionId));
-  await db.delete(resourceBindings).where(and(
-    eq(resourceBindings.resourceKey, row[0].sourceRef ?? ""),
-    eq(resourceBindings.projectionKind, row[0].kind),
-  ));
+  // Lab 01.5: the binding stays, so importing the same resource again reuses the same artifact (and FCID).
+  // A resource whose projections are all removed does not resolve by name (see lab03Service).
+  await db.update(projections).set({ status: "removed", updatedAt: new Date() }).where(eq(projections.projectionId, projectionId));
   return true;
 }
 

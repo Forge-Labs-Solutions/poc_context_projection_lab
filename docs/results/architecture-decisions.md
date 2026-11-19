@@ -268,6 +268,10 @@ Debito tecnico consciente: unificar a UI em uma unica fonte (gerar o `main.js` d
 
 Em 2026-11-19 a aba Assembly (Lab 05) tambem foi implementada apenas em `main.js`, ampliando a divergencia com os modulos `.ts`.
 
+Em 2026-11-19 a aba Synthesis (Lab 06) seguiu a mesma regra, a pedido do usuario, para acompanhar o teste com os recursos de pao caseiro. Tres modos (Items, Random, Template), `kind`, titulo, seed, escopo, `maxDepth`, formato e expansao; o clique na arvore monta a entrada (acrescenta um item, define o escopo ou acrescenta ao template). O painel so consome `POST /v1/lab06/synthesize` e nao grava nada.
+
+Ainda em 2026-11-19, os dois campos da aba FCAS passaram a ficar em variaveis do modulo (`fcasText`, `fcasSourceText`), como Assembly e Synthesis: a tela se redesenhava depois do Parse e esvaziava o campo (EXP-016).
+
 # ADR-007 - Assembly como camada sobre Projection Engine e FCAS Resolver
 
 ## Data
@@ -738,3 +742,409 @@ Aceita
 ## Observacoes
 
 Coberta pelos testes de api.test.ts ("text before the first heading"). Nao corrige dados ja importados: o texto descartado antes nao volta, e reimportar o mesmo `resourceKey` duplica a arvore (D7). O defeito D3 (documento sem nenhum titulo nao gera SS) segue aberto.
+
+
+# ADR-017 - Sintaxe FCAS unificada (intervalo de chat, conceito, referencia nomeada, projeto e diretorio por nome)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 03 - FCAS Resolution  
+Lab 05 - Context Assembly
+
+## Contexto
+
+A revisao de conformidade (D5, D6) e o plano (P1, P4) deixaram a sintaxe FCAS sem decisao:
+
+- `[[$PJ_LABS]]` resolvia para `PJ_CORE`: projeto e diretorio devolviam "o primeiro" do tipo, e a reconstrucao de FCAS perdia o nome.
+- `[[::chat<1-3>]]` caia no caso de diretorio e gerava aviso enganoso.
+- O ForgeOS ja implementa `[[#slug]]` (conceito) e `[[@nome]]` (referencia nomeada), que a POC nao reconhecia.
+
+## Decisao
+
+A POC reconhece uma sintaxe unica:
+
+| Forma | Significado |
+| --- | --- |
+| `[[FCID]]` | forma canonica e estavel |
+| `[[doc.md]]`, `[[doc.md#Secao]]` | documento e secao |
+| `[[::chat]]` | chat inteiro (expansao em bloco usa o chat inteiro) |
+| `[[::chat<N>]]` | mensagem N |
+| `[[::chat<A-B>]]` | intervalo fechado de mensagens, a partir de 1 |
+| `[[$workspace]]`, `[[$Nome]]` | workspace; projeto pelo nome ou pelo FCID do projeto |
+| `[[Nome]]` | diretorio pelo nome |
+| `[[#slug]]`, `[[#slug#Secao]]` | conceito (mantida, como no ForgeOS; so reconhecida) |
+| `[[@nome]]` | referencia nomeada (so reconhecida) |
+
+Regras:
+
+- **Intervalo:** `<A-B>` exige `A >= 1` e `B >= A`, senao a FCAS e invalida (400). O resolver devolve o chat e `range`, e quem chama aplica a janela. `B` acima do total e reduzido ao total; `A` acima do total e `INVALID_RANGE` (aviso na expansao, erro 422 na montagem). Na montagem, `[[::chat<A-B>]]` como alvo equivale a `range`; informar os dois retorna 400.
+- **Nome:** projeto e diretorio sao encontrados pelo `title` do artefato, sem diferenciar maiusculas nem espacos nas pontas. Projeto tambem pode ser encontrado pelo FCID. Nenhum caso volta ao "primeiro". Nome compartilhado retorna 409 `AMBIGUOUS_NAME` com os candidatos; nome inexistente retorna 404. Os projetos do seed ganharam `title` (`ForgeOS`, `Labs`).
+- **Reconstrucao:** FCID para FCAS devolve o nome so quando ele ainda e lido como o mesmo tipo e e unico; caso contrario devolve o FCID (`[[$PJ_X]]` para projeto, `[[DR_X]]` para diretorio). Isso cobre um diretorio chamado `#x` ou `colisao.md`.
+- **Conceito e referencia nomeada:** sao parte da sintaxe e ficam reservadas. A POC nao tem conceitos nem nomes de referencia, entao responde 422 `UNSUPPORTED_SYNTAX` (aviso `UNSUPPORTED_TARGET` na expansao) em vez de interpretar errado. Alias nao e um artefato a parte: e uma referencia (`REF_*`) com nome que aponta para uma estrutura FCAS ou um FCID.
+- **Formas em linha:** `#slug` e `@@nome` soltos no texto nao sao lidos; a POC so le o que esta entre `[[ ]]`.
+
+## Alternativas consideradas
+
+- Remover `[[#conceito]]` da sintaxe da POC (rejeitada: ja esta implementada no ForgeOS).
+- Tratar alias como um tipo de artefato proprio (rejeitada: e uma referencia nomeada).
+- Manter projeto e diretorio devolvendo o primeiro (rejeitada: D5).
+- Resolver `[[::chat]]` como ultimas N, resumo ou ranking (adiada para o EPIC 23).
+
+## Motivo
+
+Fecha D5 e D6 e a decisao do `[[::chat]]` pedida pelo P4 sem criar nada que a POC nao possa provar. Os formatos de conceito e referencia nomeada seguem o ForgeOS.
+
+## Impacto
+
+- FCAS Resolution: `parseFcas` ganhou `concept`, `alias` e `messageRange`; `resolveFcasToFcid` devolve `range` e novos erros.
+- Context Assembly: janela de chat na expansao (`selection` no manifesto) e na montagem.
+- Synthetic Projection: um item `[[::chat<A-B>]]` e recusado em `view`, `document` e `chat`, porque o alvo e um CH (`ITEM_TYPE_NOT_ALLOWED`). Itens de chat por intervalo ficam fora do Lab 06.
+- Referencia criada com intervalo grava o chat como alvo e o intervalo em `fcas_raw`.
+- Bancos criados antes desta decisao tem projetos sem `title`: so o endereco por FCID (`[[$PJ_LABS]]`) resolve neles.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes F01 a F12b e F16 a F21 (`src/tests/fcas.test.ts`). O ADR da sintaxe unificada do P1 fica fechado por este registro, exceto o alinhamento de `[[#conceito]]` e referencia nomeada com um resolvedor real, que depende do EPIC 24.
+
+# ADR-018 - Prefixo REF_ para Reference Artifacts
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 03 - FCAS Resolution
+
+## Contexto
+
+A POC gerava `RF_xxxxxxxx`; o ForgeOS usa `REF_*` (EPIC 20). O plano decidiu `REF_*` (decisao 5) e deixou a troca para o P1.
+
+## Decisao
+
+`createReferenceArtifact` gera `REF_` mais 8 caracteres. **Atualizado em 2026-11-19 (Lab 01.5):** passa a gerar `REF_` mais 6 caracteres, o tamanho do `fcid` das referencias do ForgeOS (`REF_xxxxxx`, 10 caracteres no total), para a migracao preservar os ids sem tratamento especial. Os exemplos de `docs/lab 03.md` e `docs/lab 04.md` passam a usar `REF_A`.
+
+## Alternativas consideradas
+
+- Manter `RF_` e mapear na fronteira com o ForgeOS.
+- Migrar ids ja gravados.
+
+## Motivo
+
+Os dados da POC sao descartaveis e a troca antes do EPIC 21 evita uma migracao depois.
+
+## Impacto
+
+- FCAS Resolution: so o gerador do id. A tabela `references` guarda o id como texto, sem mudanca de schema.
+- Referencias ja gravadas continuam com `RF_`; nada as le pelo prefixo.
+- `docs/lab/fcid-fcas-architecture.md` e o documento de origem e mantem o exemplo `RF_A`.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Teste F13.
+
+# ADR-019 - Alvo orfao retorna ORPHANED, com causa e substituto do conteiner
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 03 - FCAS Resolution  
+Lab 04 - Evolution & Lineage  
+Lab 05 - Context Assembly  
+Lab 06 - Synthetic Projection
+
+## Contexto
+
+A ADR-015 faz o `regenerate` superseder a subarvore da mensagem. Uma referencia a uma sentenca dessa subarvore fica sem descendente ativo (`orphaned` no Lab 04), mas o Lab 03, o Lab 05 e o Lab 06 respondiam `NOT_FOUND`, igual a um erro de digitacao.
+
+## Decisao
+
+Um FCID `superseded` sem descendente ativo passa a ser um estado proprio:
+
+- **Lab 03:** `resolve` e `references` retornam 409 `ORPHANED` com `details.originalFcid`, `details.cause` (`eventId`, `operation`, `supersededRoot`) e `details.candidates`.
+- **Lab 05:** na expansao, aviso `ORPHANED` (token literal) com `cause` e `candidates`; na montagem, erro 409 `ORPHANED`.
+- **Lab 06:** item retorna 409 `ITEM_ORPHANED` com a posicao; scope orfao retorna 404 `SCOPE_NOT_FOUND` com `details.orphaned: true`.
+- **Causa:** o ultimo evento de evolucao que tem o FCID em `inputs` ou em `before` (o `regenerate` guarda a subarvore em `before.descendants`). `candidates` sao as saidas desse evento: o contêiner que substituiu (por exemplo a nova `MS`), nao um mapeamento sentenca a sentenca.
+- **Sem religacao automatica.** A referencia nao e reescrita; religar e uma acao explicita de quem escreveu. A continuidade automatica continua so por `evolves_from`, como na ADR-005.
+
+## Alternativas consideradas
+
+- Reescrever a referencia para o contêiner novo (rejeitada: mudanca de sentido gera FCID novo).
+- Manter `NOT_FOUND` (rejeitada: esconde um caso que o usuario precisa distinguir).
+- Casar a sentenca antiga com a nova por similaridade (adiada: heuristica fora do escopo da POC).
+
+## Motivo
+
+O usuario precisa saber que a referencia existia, por que parou de resolver e onde esta o contêiner que a substituiu.
+
+## Impacto
+
+- FCAS Resolution: tres classes de erro novas (`FcasOrphanedError`, `FcasNameAmbiguousError`, `FcasUnsupportedError`).
+- Lineage: `findSupersession(fcid)` em `lab04Service.ts`.
+- UI: o painel de manifesto mostra a causa e o substituto do contêiner.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes F22 a F27. Fecha a decisao pendente da ADR-015 sobre referencias orfas. Dados antigos nao sao reparados.
+
+# ADR-020 - Documento sem titulos mantem DC > PG > SN
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping
+
+## Contexto
+
+O defeito D3 apontava que um documento sem titulos gera `DC > PG > SN`, e nao `DC > SS > PG > SN` como a especificacao descreve. A ADR-016 ja fez o texto antes do primeiro titulo virar PG filho direto do DC.
+
+## Decisao
+
+A especificacao muda, o codigo nao: um DC pode ter PG como filho direto. Isso vale para o texto antes do primeiro titulo (ADR-016) e para o documento que so tem esse texto, isto e, sem nenhum titulo. `DC > SS > PG > SN` descreve o documento com titulos.
+
+## Alternativas consideradas
+
+- Criar uma SS sem nome para o documento sem titulos (rejeitada: nao teria como ser endereçada por `[[doc#Secao]]` e seria uma segunda excecao ao mapeamento).
+
+## Motivo
+
+E o que a ADR-016 ja faz para o texto introdutorio; uma unica regra cobre os dois casos.
+
+## Impacto
+
+- Artifact Mapping: nenhum codigo muda. `docs/lab 01.md` descreve a hierarquia para documentos com titulos.
+- Projection Engine: ja projeta PG direto do DC (ADR-010).
+- FCAS Resolution: PG direto nao tem titulo e nao e alvo de `[[doc#Secao]]`.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Fecha D3. Decisao do usuario, que e dono da especificacao.
+
+# ADR-021 - Chat criado entra como filho do workspace
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping
+
+## Contexto
+
+O defeito D4: `createChat` nao ligava o chat a nenhum pai e ele aparecia como raiz da arvore. Documentos importados sem pai ja ficam sob o workspace.
+
+## Decisao
+
+`createChat` cria a aresta `WS > CH`. Nao ha parametro de pai. Criar de novo o mesmo `resourceKey` nao duplica a aresta.
+
+## Alternativas consideradas
+
+- Aceitar `parentFcid` (PJ ou DR), como o import de documentos.
+- Pendurar o chat em um DR "chats" do projeto padrao.
+
+## Motivo
+
+Decisao do usuario: o pai do chat e o workspace. Fica igual ao pai padrao de um documento importado sem pai.
+
+## Impacto
+
+- Artifact Mapping: nova aresta `WS > CH` a cada chat criado.
+- UI: o painel Chat mostra o chat sob o WS; a aba Document continua sem chats, porque o filtro da aba ignora CH.
+- Chats criados antes continuam sem pai; nada os repara.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes F14 e F15.
+
+
+# ADR-022 - Reimportacao idempotente por alinhamento da arvore
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping  
+Lab 04 - Evolution & Lineage
+
+## Contexto
+
+O defeito D7: importar de novo o mesmo `resourceKey` reaproveitava o DC e duplicava `SS`, `PG` e `SN` abaixo dele; importar um diretorio de novo criava outro `DR` e deixava o DC com dois pais; `projection/remove` apagava o binding, e a proxima importacao criava um DC com FCID novo.
+
+## Decisao
+
+Uma `resourceKey` que ja tem binding e trazida ao texto novo, em uma transacao, sem recriar o que nao mudou:
+
+1. **Alinhamento.** Os filhos de um mesmo pai, antigos e novos, sao alinhados por uma chave normalizada (`SS`: nivel e titulo; `PG`: texto; `SN`: texto, com a normalizacao do Lab 04). Primeiro a maior subsequencia comum (LCS, depois de tirar o prefixo e o sufixo iguais); o que sobra entre duas ancoras e pareado por posicao e tipo; o que ainda sobra e casado por chave em qualquer posicao (movido); o resto e removido ou criado.
+2. **Regra de identidade do Lab 04.** Texto identico: nada. Mesma chave com texto cru diferente (maiuscula, pontuacao): `edit`. Dois `SN` pareados: `classifyChange` decide, `edit` (mesmo FCID) ou `semantic_change` (FCID novo, `evolves_from`). `SS` pareados: `edit` do titulo e do nivel. Elementos pareados do mesmo tipo, `PG` e `SS`, mantem o FCID e descem para os filhos.
+3. **Dois eventos novos.** `remove` (entrada `[fcid]`, saida `[]`; `before` guarda o tipo, os metadados e a subarvore) deixa o elemento e a subarvore `superseded`, sem sucessor: uma referencia a eles passa a `orphaned`, com causa `remove` (ADR-019). `reimport` e um resumo por chamada que mudou algo (`kept`, `edited`, `replaced`, `removed`, `added`, `moved`, `metadata`, mais a lista de mudancas com o valor anterior). E a ultima escrita: se falhar, a transacao desfaz tudo.
+4. **`projection/remove` mantem o binding.** O recurso removido nao resolve por nome (FCAS, `findBinding`) nem volta como nome em `FCID para FCAS`; importar de novo reativa a mesma projecao e reaproveita o mesmo DC.
+5. **Diretorio:** identificado pelo pai e pelo titulo exato; importar de novo o reaproveita. **Documento:** um pai explicito move o documento; sem pai, ele fica onde esta.
+6. **Chat:** `POST /v1/lab01/chat/import` cria o chat ou o leva a uma conversa. Mensagens com `fcid` sao casadas por ele; sem, por posicao e papel (papel diferente na mesma posicao substitui a mensagem). O chat fica sob o workspace (ADR-021). Criar o mesmo chat de novo reaproveita a projecao.
+
+## Alternativas consideradas
+
+- Substituir a subarvore inteira a cada reimportacao, como o `regenerate` (rejeitada: troca todos os FCIDs e orfa todas as referencias).
+- Comparar so por posicao, sem LCS (rejeitada: inserir um paragrafo no meio trocaria o texto de todos os seguintes).
+- Continuar apagando o binding no `remove` (rejeitada: o FCID do recurso mudaria na reimportacao).
+
+## Motivo
+
+E o mecanismo que a migracao incremental e reversivel precisa: a mesma entrada, repetida, nao muda nada; uma mudanca na entrada muda so o que ela tocou, pela regra de identidade ja aceita.
+
+## Impacto
+
+- Artifact Mapping: `importDocument` e `importDirectory` passam a reimportar; a resposta traz `reimport` (resumo, ou `null` na primeira importacao).
+- Lineage: `EvolutionOperation` ganha `remove` e `reimport`; `applyEdit` e `applySemanticChange` foram extraidos do Lab 04 para rodar dentro de uma transacao.
+- FCAS Resolution: recurso removido deixa de resolver por nome.
+- Dados criados antes desta mudanca nao sao reparados.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes C01 a C20. Limites conhecidos: o pareamento por posicao dentro de um intervalo pode juntar dois paragrafos sem relacao (o `PG` mantem o FCID; as sentencas registram a evolucao); um bloco movido e alterado ao mesmo tempo vira remocao mais criacao; acima de 4 milhoes de celulas a parte do meio nao usa LCS e cai no pareamento por posicao.
+
+# ADR-023 - Migracao dos chats do ForgeOS: FCIDs adotados, fonte somente leitura, relatorio com contagens
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01.5 - Chat Migration & Idempotent Import
+
+## Contexto
+
+O plano (P2) pede a migracao Chat > Message do ForgeOS para `CH > MS > SS/PG > SN` numa copia do banco real, com a lista do que se perde e uma estrategia recomendada. O ForgeOS ja tem FCID em `chats`, `messages` e `cognitive_references`, no mesmo formato da POC.
+
+## Decisao
+
+- **Fonte.** Uma copia do banco do ForgeOS, aberta somente para leitura. O executavel recusa o caminho do banco original (`.forgeos/forgeos.db`) e o destino igual a fonte ou dentro de `.forgeos`. O relatorio traz agregados e nunca texto de mensagem; o banco de destino e o relatorio ficam em `data/` (fora do git).
+- **Identidade.** `CH`, `MS` e `REF_` sao criados com o FCID da fonte. `SS`, `PG` e `SN` recebem FCID novo na primeira migracao e passam a seguir a ADR-022. Um FCID que ja existe fora do chat recusa o chat inteiro (uma transacao por chat) e entra no relatorio.
+- **Chave do chat.** `::reference_name` quando o nome e unico entre todos os chats da fonte e seguro (sem `<`, `>`, `[`, `]`, quebra de linha); senao `::<fcid>`. A contagem usa todos os chats, para a chave nao mudar com `--include-deleted`.
+- **Ordem.** `position` da fonte (base 0); `<N>` da POC e `position + 1`.
+- **Metadados.** Os campos de origem (autor, destinatario, provedor, modelo, datas, projeto, estado, visibilidade) ficam em `metadata.source` do `CH` e da `MS`; mudanca neles na fonte e aplicada na proxima execucao.
+- **Nao migrado por padrao:** chats `deleted` (`--include-deleted` os traz, marcados), referencias com alvo `concept`, `chat_lineage`, `aliases` e `concepts`. Tudo isso e contado no relatorio.
+- **Referencias com alvo `message`** migram com o `REF_` preservado e o status da fonte (`resolved` ou `stale`), se a origem e o alvo foram migrados.
+- **Fidelidade.** Cada mensagem e reconstruida e classificada: `exact`, `whitespace`, `structure` (todas as letras e numeros presentes, forma diferente: lista, tabela, codigo, citacao, enfase, regua) ou `loss`. Quebra de linha dentro de lista, tabela ou codigo conta como estrutura, nao como espaco.
+
+## Alternativas consideradas
+
+- Gerar FCIDs novos e guardar uma tabela de correspondencia (rejeitada: o ForgeOS e a POC ja usam o mesmo formato; a correspondencia seria uma segunda fonte de verdade).
+- Criar artefatos para os conceitos e migrar as referencias a eles (adiada: e decisao do EPIC 21).
+- Mapear `chat_lineage` para `evolves_from` (rejeitada: derivar um chat nao e evoluir um artefato).
+
+## Motivo
+
+O mesmo FCID dos dois lados permite comparar, repetir e reverter sem tabela de mapeamento. A fonte somente leitura e o relatorio sem texto tornam a execucao segura sobre dados reais.
+
+## Impacto
+
+- Novo modulo `forgeosMigration.ts`, o comando `npm run lab015:migrate` e `ChatMessageInput` com `fcid` e `metadata`.
+- Atualiza a ADR-018: o `REF_` passa a ter 6 caracteres.
+- Nao escreve no ForgeOS; nao migra de volta.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes C21 a C33 (com um banco sintetico no formato do ForgeOS) e a execucao real em EXP-014. Resultados e lacunas em `docs/results/lab-01.5-compatibilidade.md`.
+
+
+# ADR-024 - Estabilidade da referencia: valida pelo FCID, `stale` quando o texto fica velho
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 03 - FCAS Resolution (Sub-Lab 03.5, Reference Stability)
+
+## Contexto
+
+O Sub-Lab 03.5 pede que a referencia continue valida ao renomear um documento, mover um diretorio e reorganizar a estrutura. A POC nao tinha nenhuma dessas operacoes, o status gravado da referencia era sempre `resolved` (D8), e o plano pede reconciliar os estados com os do ForgeOS (`resolved`, `unresolved`, `stale`, `broken`).
+
+## Decisao
+
+1. **Valida pelo FCID.** Uma referencia guarda o FCID do alvo e e valida enquanto o alvo esta ativo. Renomear, mover e reordenar nao trocam FCID, nao criam evento de evolucao (nao sao mudanca de conteudo, ADR-004 e ADR-005) e por isso nao invalidam referencia nenhuma.
+2. **Tres operacoes explicitas:** `rename` (a chave de um documento ou chat; o titulo de um diretorio ou projeto), `move` (documento ou diretorio para o workspace, um projeto ou um diretorio, sem ciclo) e `reorder` (uma permutacao dos filhos de um pai: secoes, documentos, mensagens).
+3. **Estados.**
+   - `resolved`: o alvo esta ativo e o texto FCAS guardado ainda resolve para ele.
+   - `stale`: o alvo esta ativo e valido pelo FCID, mas o texto guardado nao resolve mais para ele. Acontece ao renomear, ao reordenar mensagens (o `<N>` posicional aponta para outra) e quando dois diretorios passam a ter o mesmo nome.
+   - `evolved`, `ambiguous` e `orphaned` continuam vindo da linhagem (ADR-005 e ADR-019) e sao calculados, nao gravados.
+4. **O status gravado so guarda `resolved` e `stale`** e e sincronizado para todas as referencias depois de cada operacao estrutural. `GET /v1/lab03/references/:id` calcula na hora e devolve tambem o FCAS canonico do alvo.
+5. **`refresh`** reescreve o texto guardado para o FCAS canonico e volta o estado a `resolved`. So vale com o alvo ativo (409 `TARGET_NOT_ACTIVE` nos outros casos) e nunca muda o alvo.
+6. **Nomes.** Chave de documento: termina em `.md`, sem `#`, `[`, `]` ou quebra de linha, e nao comeca com `::`, `$`, `@` ou `#`. Chave de chat: comeca com `::`, sem `<`, `>`, `[`, `]`. A chave e unica por tipo (409 `CONFLICT`). Titulo de diretorio e de projeto nao e unico: o nome repetido e reportado como ambiguidade (ADR-017) e a referencia fica `stale`, com o FCID como endereco canonico.
+7. **O nome antigo nao vira alias.** Depois de renomear, `[[nome-antigo.md]]` retorna 404.
+
+## Mapeamento com o ForgeOS
+
+| ForgeOS | POC |
+| ------- | --- |
+| `resolved` | `resolved` |
+| `stale` | `stale`, com a definicao acima. [I] O significado exato do `stale` no ForgeOS nao foi verificado; ha 3 referencias `stale` no banco de teste |
+| `unresolved` | nao existe: criar a referencia exige que ela resolva |
+| `broken` | nao existe: o alvo nao pode sumir (a chave estrangeira o impede); o que perde o alvo ativo e `orphaned` |
+
+## Alternativas consideradas
+
+- Manter o nome antigo como alias (rejeitada: a referencia ja nao depende do nome e o alias esconderia o `stale`).
+- Reescrever o texto guardado sozinho a cada operacao (rejeitada: o texto escrito por quem criou a referencia muda sem aviso; o `refresh` e explicito).
+- Registrar evento de evolucao para renomear, mover e reordenar (rejeitada: o evento do Lab 04 descreve evolucao de conteudo).
+
+## Motivo
+
+A estabilidade da referencia vem de ela ser guardada por FCID; o que precisava ser decidido era o que significa o texto ficar velho, e quem corrige.
+
+## Impacto
+
+- FCAS Resolution: `lab035Service.ts`; rotas `POST /v1/lab03/rename`, `/move`, `/reorder`, `GET /v1/lab03/references/:id` e `POST /v1/lab03/references/:id/refresh`.
+- Fecha o defeito D8 na parte do `references.status` que era sempre `resolved`. As verificacoes do Lab 01 (`projectionIsNotSourceOfTruth`, `separatesStructureAndContent`) seguem abertas.
+- As referencias migradas do ForgeOS com status `stale` (ADR-023) passam a ter o status recalculado na proxima operacao estrutural.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Testes S01 a S20. Um `<N>` posicional e fragil por natureza: inserir no fim nao o muda, reordenar muda. A referencia por FCID nao tem esse problema.

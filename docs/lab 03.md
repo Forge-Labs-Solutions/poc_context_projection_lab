@@ -195,7 +195,7 @@ Reference
 Exemplo:
 
 ```txt id="u9d14q"
-RF_A
+REF_A
 ├─ fcas:
 │   [[architecture.md#Introduction]]
 │
@@ -416,7 +416,7 @@ Reference Artifact
 ## Exemplo
 
 ```txt id="3gyxgz"
-RF_A
+REF_A
 ├─ fcas
 └─ target_fcid
 ```
@@ -585,3 +585,28 @@ FCAS
 ```
 
 estabelecendo a FCAS como a linguagem oficial de navegação cognitiva da Parte 2 do ForgeOS.
+
+---
+
+# Atualização de 2026-11-19: sintaxe FCAS unificada
+
+Os exemplos acima continuam válidos. A revisão da POC fechou o que a sintaxe cobre (ADR-017 a ADR-021):
+
+```txt
+[[::chat<2-4>]]        intervalo fechado de mensagens, a partir de 1
+[[#context-engine]]    conceito (reconhecido; a POC não o resolve)
+[[@atalho]]            referência nomeada (reconhecida; a POC não a resolve)
+[[$ForgeOS]]           projeto pelo nome, ou pelo FCID do projeto
+[[Architecture]]       diretório pelo nome; nome repetido retorna AMBIGUOUS_NAME
+```
+
+- Projeto e diretório são endereçados pelo `title` do artefato, sem diferenciar maiúsculas. O resolver deixou de devolver "o primeiro projeto" ou "o primeiro diretório".
+- Referência (Reference Artifact) usa o prefixo `REF_`.
+- Alias não é um artefato à parte: é uma referência com nome que aponta para uma estrutura FCAS ou um FCID.
+- Um FCID substituído sem descendente ativo retorna `ORPHANED`, com a causa e, quando o log sabe, o que substituiu o contêiner.
+
+---
+
+# Resultado do Sub-Lab 03.5 (2026-11-19)
+
+Os três cenários foram implementados e testados (S01 a S20, 16 mutações detectadas): a referência continua válida ao renomear, mover e reorganizar, porque é guardada pelo FCID do alvo. O que muda é o estado do texto FCAS guardado: `stale` quando o nome antigo deixa de resolver, quando um `<N>` posicional passa a apontar para outra mensagem ou quando dois diretórios passam a ter o mesmo nome. `refresh` corrige o texto sem mudar o alvo. Decisão: ADR-024. Experimento: EXP-015.

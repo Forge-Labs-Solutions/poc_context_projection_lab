@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "seed": "tsx src/seeds/runSeed.ts"
+    "seed": "tsx src/seeds/runSeed.ts",
+    "lab015:migrate": "tsx src/scripts/migrateForgeos.ts"
   },
   "keywords": [
     "forgeos",

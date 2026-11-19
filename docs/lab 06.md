@@ -1004,3 +1004,11 @@ Nenhuma fonte alterada.
 ```
 
 provando que documentos e chats são apenas uma das possíveis projeções dos artefatos cognitivos, e fechando a hipótese final da Parte 2 do ForgeOS: o contexto é um conjunto de artefatos persistentes, e toda view é uma projeção calculada sobre ele.
+
+---
+
+# Atualização de 2026-11-19
+
+- Item substituído sem descendente ativo retorna 409 `ITEM_ORPHANED` com a posição, a causa e os candidatos; scope órfão retorna 404 `SCOPE_NOT_FOUND` com `details.orphaned: true` (ADR-019).
+- Um item `[[::chat<A-B>]]` aponta para um CH e é recusado com `ITEM_TYPE_NOT_ALLOWED`; itens de chat por intervalo ficam fora do Lab 06 (ADR-017).
+- A interface ganhou a aba Synthesis (Items, Random, Template) em `src/ui/main.js` (nota na ADR-006).

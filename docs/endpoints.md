@@ -139,6 +139,8 @@ curl -X POST http://localhost:3000/v1/seeds/reset
 Importa um documento bruto em Markdown e cria artefatos no formato:
 `DC -> SS -> PG -> SN`.
 
+**Reimportacao (Lab 01.5, ADR-022).** Se a `resourceKey` ja tem vinculo, o documento e levado ao texto novo, em uma transacao, sem duplicar nada: o que nao mudou fica igual, uma correcao leve mantem o `SN` (`edit`), uma mudanca de sentido cria um `SN` novo que evolui do antigo (`semantic_change`), o que sumiu fica `superseded` (`remove`) e o que e novo e criado. A resposta traz `reimport` com o resumo (`kept`, `edited`, `replaced`, `removed`, `added`, `moved`, `metadata`), ou `null` na primeira importacao. Sem `parentFcid` o documento fica onde esta; com `parentFcid` ele e movido. `POST /v1/lab01/import/directory` reaproveita o diretorio de mesmo pai e titulo exato.
+
 Body:
 ```json
 {
@@ -317,8 +319,41 @@ curl -X POST http://localhost:3000/v1/lab01/chat/CH_8A626C/messages \
   -d "{\"role\":\"user\",\"text\":\"Hello world\"}"
 ```
 
+### POST `/v1/lab01/chat/import`
+Cria o chat ou o leva a uma conversa, de forma idempotente (Lab 01.5, ADR-022). Importar a mesma conversa de novo nao muda nada.
+
+Body:
+```json
+{
+  "resourceKey": "::retrieval-chat",
+  "title": "Retrieval Chat",
+  "messages": [
+    { "role": "user", "text": "Como comeco?" },
+    { "role": "assistant", "text": "Comece pela massa." }
+  ]
+}
+```
+
+Campos:
+- `messages[].fcid` (string, opcional): identidade da mensagem na origem. Mensagens com `fcid` sao casadas por ele (e criadas com ele); sem, sao casadas por posicao e papel. Dar `fcid` a todas as mensagens ou a nenhuma (senao `400`).
+- `messages[].role` (`user | assistant | system`) e `messages[].text` sao obrigatorios.
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "chatFcid": "CH_8A626C",
+    "projectionId": "PROJ_Q1W2E3R4",
+    "messageFcids": ["MS_AAAAAA", "MS_BBBBBB"],
+    "reimport": { "kept": 2, "edited": 0, "replaced": 0, "removed": 0, "added": 0, "moved": 0, "metadata": 0 }
+  }
+}
+```
+
+`reimport` e `null` quando o chat foi criado agora. Uma mensagem a mais no fim entra sozinha (`added`); texto alterado muda a mensagem (`edited` ou `replaced`, pela regra do Lab 04); mensagem que sumiu fica `superseded` (`removed`); papel diferente na mesma posicao substitui a mensagem (`removed` e `added`). Erros: `409 FCID_CONFLICT` (o FCID ja existe fora do chat, ou a chave ja pertence a outro chat).
+
 ### POST `/v1/lab01/projection/remove`
-Marca uma projecao como removida sem apagar artefatos persistidos.
+Marca uma projecao como removida sem apagar artefatos persistidos. O vinculo do recurso e mantido: importar de novo a mesma `resourceKey` reaproveita o mesmo artefato (mesmo FCID) e reativa a mesma projecao. Enquanto estiver removido, o recurso nao resolve por nome (`[[doc.md]]` retorna 404).
 
 Body:
 ```json
@@ -544,7 +579,7 @@ curl -X POST http://localhost:3000/v1/lab02/project \
 ## 5) Lab 03 - FCAS Resolution
 
 ### POST `/v1/lab03/parse`
-Faz parse da sintaxe FCAS para estrutura interpretada.
+Faz parse da sintaxe FCAS para estrutura interpretada. Sintaxe e regras em ADR-017.
 
 Body:
 ```json
@@ -552,6 +587,20 @@ Body:
   "fcas": "[[architecture.md#Introduction]]"
 }
 ```
+
+Formas reconhecidas (`parsed.kind`):
+
+| Forma | kind | Observacao |
+| --- | --- | --- |
+| `[[WS_ABC123]]` | `artifact` | FCID |
+| `[[$workspace]]` | `workspace` | |
+| `[[$ForgeOS]]` | `project` | nome do projeto (sem diferenciar maiusculas) ou FCID do projeto |
+| `[[Architecture]]` | `directory` | nome do diretorio |
+| `[[doc.md]]`, `[[doc.md#Secao]]` | `document` | |
+| `[[::chat]]`, `[[::chat<N>]]` | `chat` | chat inteiro ou mensagem N |
+| `[[::chat<A-B>]]` | `chat` com `messageRange` | intervalo fechado, a partir de 1; `A < 1` ou `B < A` retorna 400 |
+| `[[#slug]]`, `[[#slug#Secao]]` | `concept` | so reconhecida; nao e resolvida pela POC |
+| `[[@nome]]` | `alias` | referencia nomeada; so reconhecida; nao e resolvida pela POC |
 
 ### POST `/v1/lab03/resolve`
 Resolve FCAS para FCID persistente.
@@ -573,8 +622,21 @@ Resposta `200`:
 }
 ```
 
+`evolvedFrom` aparece quando o FCID pedido foi superseded e resolveu por lineage. `range` (`{ "from": 2, "to": 3 }`) aparece para `[[::chat<2-3>]]`: `targetFcid` e o chat e o recorte fica com quem chamou.
+
+Erros (`{ error, code?, details? }`):
+
+| Status | code | Quando |
+| --- | --- | --- |
+| 400 | - | FCAS invalida |
+| 404 | - | alvo inexistente, inclusive projeto ou diretorio sem esse nome (nao cai mais no primeiro) |
+| 409 | - | FCID dividido (`details.candidates`) |
+| 409 | `AMBIGUOUS_NAME` | dois ou mais diretorios (ou projetos) com o mesmo nome (`details.candidates`) |
+| 409 | `ORPHANED` | FCID superseded sem descendente ativo; `details.cause` (`eventId`, `operation`, `supersededRoot`) e `details.candidates` (o que o evento produziu) quando o log tem o evento |
+| 422 | `UNSUPPORTED_SYNTAX` | `[[#slug]]` ou `[[@nome]]` (`details.syntax`) |
+
 ### POST `/v1/lab03/references`
-Cria Reference Artifact persistindo `fcas + target_fcid`.
+Cria Reference Artifact persistindo `fcas + target_fcid`. O id usa o prefixo `REF_` (ADR-018). Os erros sao os do `resolve`. Um intervalo de chat e aceito: o alvo gravado e o chat e o intervalo fica em `fcas_raw`.
 
 Body:
 ```json
@@ -585,7 +647,7 @@ Body:
 ```
 
 ### POST `/v1/lab03/project-fcas`
-Reconstrói FCAS humana a partir de um FCID.
+Reconstrói FCAS humana a partir de um FCID. Projeto e diretorio voltam pelo nome (`[[$Labs]]`, `[[Architecture]]`) quando o nome e unico e continua sendo lido como o mesmo tipo; senao volta o FCID (`[[PJ_ABC123]]` como `[[$PJ_ABC123]]`, diretorio como `[[DR_ABC123]]`).
 
 Body:
 ```json
@@ -603,6 +665,39 @@ Resposta `200`:
   }
 }
 ```
+
+### Lab 03.5 - Estabilidade da referencia (ADR-024)
+
+Uma referencia guarda o FCID do alvo e e valida enquanto o alvo esta ativo. Renomear, mover e reordenar nao trocam FCID e nao criam evento de evolucao; o que pode ficar velho e o texto FCAS guardado (`stale`). Depois de cada operacao, o `status` gravado de todas as referencias e sincronizado (`resolved` ou `stale`); as respostas trazem `references: { total, resolved, stale }`.
+
+Erros (`{ error, code, details }`): `NOT_FOUND` (404), `INVALID_OPERATION` e `NOT_A_PERMUTATION` (422), `CONFLICT`, `CYCLE` e `TARGET_NOT_ACTIVE` (409). Body invalido retorna 400.
+
+#### POST `/v1/lab03/rename`
+Renomeia um documento ou chat (`resourceKey`; `title` opcional atualiza o titulo da projecao) ou um diretorio ou projeto (`title`).
+```json
+{ "fcid": "DC_KDCK60", "resourceKey": "core-architecture.md" }
+```
+Resposta: `{ fcid, previous, current, references }`. Chave de documento: termina em `.md`, sem `#`, `[`, `]` ou quebra de linha, sem comecar com `::`, `$`, `@` ou `#`. Chave de chat: comeca com `::`, sem `<`, `>`, `[`, `]`. Chave ja usada: `409 CONFLICT`. O nome antigo deixa de resolver.
+
+#### POST `/v1/lab03/move`
+Move um documento ou diretorio para o workspace, um projeto ou um diretorio.
+```json
+{ "fcid": "DR_AB12CD", "newParentFcid": "PJ_CORE" }
+```
+Resposta: `{ fcid, previousParent, newParent, references }`. Mover para si mesmo ou para um descendente: `409 CYCLE`. Como o endereco de um documento e a chave, e nao o caminho, mover nao deixa referencia `stale`.
+
+#### POST `/v1/lab03/reorder`
+Poe os filhos de um pai em outra ordem; `childFcids` precisa ser uma permutacao dos filhos atuais.
+```json
+{ "parentFcid": "CH_8A626C", "childFcids": ["MS_AAAAAA", "MS_CCCCCC", "MS_BBBBBB"] }
+```
+Resposta: `{ parentFcid, childFcids, references }`. Reordenar mensagens deixa `stale` a referencia posicional (`[[::chat<2>]]`) que passou a apontar para outra; reordenar secoes ou documentos nao deixa nenhuma.
+
+#### GET `/v1/lab03/references/:referenceId`
+Estado calculado na hora: `{ referenceId, fcasRaw, targetFcid, status, currentFcids, canonicalFcas }`, com `status` em `resolved`, `stale`, `evolved`, `ambiguous` ou `orphaned`. `canonicalFcas` e o FCAS que o alvo tem agora (do sucessor, se evoluiu; `null` se orfao).
+
+#### POST `/v1/lab03/references/:referenceId/refresh`
+Reescreve o texto guardado de uma referencia `stale` para o FCAS canonico e volta o estado a `resolved`. O alvo nunca muda. Se o alvo nao esta ativo: `409 TARGET_NOT_ACTIVE`.
 
 ## 6) Lab 04 - Evolution & Lineage
 
@@ -697,7 +792,9 @@ Regras em `docs/lab 05.md` (ADR-007 a ADR-010). Erros seguem o formato:
 { "error": "Range must satisfy 1 <= from <= 4 and to >= from", "code": "INVALID_RANGE", "details": { "from": 5, "to": null, "total": 4 } }
 ```
 
-Codigos: `INVALID_TARGET` (400), `NOT_FOUND` (404), `UNSUPPORTED_SCOPE`, `AMBIGUOUS` (409, `details.candidates`), `INVALID_RANGE`, `NO_CHILDREN`, `ROLES_NOT_APPLICABLE` (422). Body invalido retorna 400.
+Codigos: `INVALID_TARGET` (400), `NOT_FOUND` (404), `UNSUPPORTED_SCOPE`, `AMBIGUOUS` (409, `details.candidates`, tambem para nome compartilhado por dois diretorios), `ORPHANED` (409, `details.originalFcid`, `details.cause`, `details.candidates`), `INVALID_RANGE`, `NO_CHILDREN`, `ROLES_NOT_APPLICABLE` (422). Body invalido retorna 400.
+
+Um alvo escrito como `[[::chat<A-B>]]` monta aquela janela do chat (ADR-017). Passar tambem `range` no corpo retorna 400 `INVALID_TARGET`. `[[#slug]]` e `[[@nome]]` como alvo retornam 400 `INVALID_TARGET`.
 
 Referencias que nao podem ser expandidas nao geram erro: o token fica literal e entra em `warnings`.
 
@@ -743,7 +840,9 @@ Resposta `200`:
 
 `selection` e `null` sem recorte. Entradas do `manifest` com `role: "expanded"` trazem `depth`, `via` (a referencia FCAS) e, quando a referencia passou por lineage, `evolvedFrom`.
 
-Codigos de `warnings`: `NOT_FOUND`, `UNSUPPORTED_TARGET`, `AMBIGUOUS` (com `candidates`), `CYCLE`, `DEPTH_EXCEEDED`, `BLOCK_REFERENCE_INLINE`.
+Codigos de `warnings`: `NOT_FOUND`, `UNSUPPORTED_TARGET` (tambem para `[[#slug]]` e `[[@nome]]`), `AMBIGUOUS` (com `candidates`), `ORPHANED` (com `cause` e, quando conhecido, `candidates` com o que substituiu o contêiner), `INVALID_RANGE` (janela de chat fora da conversa), `CYCLE`, `DEPTH_EXCEEDED`, `BLOCK_REFERENCE_INLINE`.
+
+Uma entrada do `manifest` de um chat expandido por `[[::chat<A-B>]]` traz `selection` (`from`, `to`, `total`).
 
 ### POST `/v1/lab05/expand`
 Expande referencias FCAS em um texto qualquer, sem alvo.
@@ -821,9 +920,10 @@ Erros (`{ error, code, details }`):
 | --- | --- | --- |
 | 400 | - | body invalido: nenhum ou mais de um modo, `title` ou `template` em `chat`, `count` fora de 1..50, `maxDepth` fora de 1..5 |
 | 404 | `ITEM_NOT_FOUND` | item inexistente (`details.position`) |
-| 404 | `SCOPE_NOT_FOUND` | scope inexistente |
+| 404 | `SCOPE_NOT_FOUND` | scope inexistente, ou orfao (`details.orphaned: true`) |
 | 409 | `ITEM_AMBIGUOUS` | item dividido pelo Lab 04 (`details.position`, `details.candidates`) |
-| 409 | `SCOPE_AMBIGUOUS` | scope dividido (`details.candidates`) |
+| 409 | `ITEM_ORPHANED` | item superseded sem descendente ativo (`details.position`, `details.originalFcid`, `details.cause`, `details.candidates`) |
+| 409 | `SCOPE_AMBIGUOUS` | scope dividido, ou nome compartilhado (`details.candidates`) |
 | 422 | `INVALID_ITEM` | item que nao e FCID nem FCAS |
 | 422 | `ITEM_TYPE_NOT_ALLOWED` | tipo fora do kind (`details.allowed`), inclusive DC, CH, WS, PJ e DR |
 | 422 | `INVALID_SCOPE` | scope que nao e FCID nem FCAS |

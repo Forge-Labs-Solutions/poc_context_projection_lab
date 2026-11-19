@@ -109,6 +109,22 @@ Ao final da POC deve ser possível afirmar:
 ✓ Novas projeções podem ser criadas
 ```
 
+## Resultado da POC (2026-11-19)
+
+| Hipótese | Resultado | Onde |
+| -------- | --------- | ---- |
+| Documento é projeção | Validada | Labs 01 e 02 |
+| Chat é projeção | Validada | Labs 01 e 02 |
+| FCIDs são a fonte de verdade | Validada: o FCID persiste ao editar, renomear, mover e reordenar, e muda só na mudança de sentido | Labs 03.5 e 04 (ADR-004, ADR-005, ADR-024) |
+| FCAS navega artefatos cognitivos | Validada, com a sintaxe unificada fechada; `[[#conceito]]` e referência nomeada são reconhecidas e não resolvidas pela POC | Lab 03 (ADR-017) |
+| Documentos podem ser reconstruídos | Validada para o texto. A estrutura de bloco (lista, tabela, código, ênfase) não é representada | Lab 02; Lab 01.5 |
+| Chats podem ser reconstruídos | Validada para o texto: 0 perdas em 165 mensagens de teste; 59 mudam de forma | Lab 01.5 (EXP-014) |
+| Lineage funciona | Validada | Lab 04 |
+| Context Assembly funciona | Validada | Lab 05 |
+| Novas projeções podem ser criadas | Validada. O Lab 06 foi **antecipado** (planejado para o EPIC 22) e mantido por decisão de 2026-11-19 | Lab 06 |
+
+Detalhes e decisões: `docs/results/architecture-decisions.md` (ADR-001 a ADR-024) e `docs/results/experiment-results.md` (EXP-001 a EXP-015). O gate Go/No-go e o que falta estão em `docs/06. evolucao-e-roadmap/proximos-passos.md`, seção 5.
+
 ---
 
 # Arquitetura Conceitual

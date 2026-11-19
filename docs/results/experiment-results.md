@@ -59,7 +59,7 @@ Validado
 
 ## Pendencias
 
-- Executar checklist manual completo em ambiente visual com a API em execucao (`npm run dev`) para confirmar UX de ponta a ponta.
+- Executar checklist manual completo em ambiente visual com a API em execucao (`npm run dev`) para confirmar UX de ponta a ponta. **Feito em 2026-11-19, ver EXP-016.**
 
 # EXP-002 - Validacao do seed minimo com workspace e dois projetos
 
@@ -166,7 +166,7 @@ Validado
 
 ## Pendencias
 
-- Validar visualmente no navegador se o novo comportamento atende o fluxo esperado de importacao.
+- Validar visualmente no navegador se o novo comportamento atende o fluxo esperado de importacao. **Feito em 2026-11-19, ver EXP-016.**
 
 # EXP-004 - Validacao da projecao de paragrafos no Lab 02
 
@@ -669,3 +669,294 @@ Validado por implementacao e cobertura automatizada
 - Dados gravados antes das correcoes nao sao reparados: mensagens regeneradas antes ainda tem filhos `active`, e o texto descartado antes nao volta.
 - Defeitos D3 a D8 da revisao seguem abertos (documento sem titulos sem SS, chat sem pai, resolver ignorando nomes, `[[::chat<1-3>]]`, reimportacao, verificacoes que sempre passam).
 - O EXP-010 afirmou que o filtro de estado bastava para manter substituidos fora do sorteio. A mutacao daquele experimento so cobria o tipo MS; a afirmacao so passou a valer para SN e PG com a ADR-015.
+
+# EXP-012 - Teste pela interface com recursos de pao caseiro (Labs 01 a 06)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Labs 01 a 06
+
+## Hipotese
+
+Cinco documentos markdown e tres chats sobre um assunto nao tecnico, importados e operados pela UI, mostram como recursos viram artefatos, como documentos e chats sao reconstruidos, como o FCAS acessa artefatos, como eles evoluem e como novas projecoes sao criadas.
+
+## Procedimento
+
+1. Importar os 5 documentos (`docs/<arquivo>`) e os 3 chats (`::padaria-...`) de `resources/` em um banco proprio (`data/resources-test.db`), pela UI e pela API.
+2. Lab 02: projetar documentos, chats e mensagens em markdown, texto e json.
+3. Lab 03: resolver FCAS e FCID, copiar referencias, criar referencias (resolvida, evoluida, ambigua, orfa).
+4. Lab 04: editar, mudanca semantica, dividir, fundir e regenerar (pela API; a UI so tem o painel de lineage).
+5. Lab 05: montar documento e chat inteiros, janela por `range` e `roles`, expandir texto com referencias (aba Assembly).
+6. Lab 06: Items, Random com seed e escopo, Template, erros estritos (aba Synthesis, criada neste teste).
+
+## Entrada
+
+Ver `resources/README.md`.
+
+## Resultado observado
+
+- Cada fluxo funcionou como a especificacao do lab. Lab 05: evolucao seguida na expansao, `AMBIGUOUS` com candidatos, `BLOCK_REFERENCE_INLINE`, `NOT_FOUND`. Lab 06: mesma seed gera a mesma selecao; escopo reduziu o pool de 177 para 30; `ITEM_AMBIGUOUS` e `ITEM_TYPE_NOT_ALLOWED` com posicao; artefatos de origem inalterados.
+- Achados: documento sem titulos nao gera SS (D3); sentencas de um paragrafo aparecem coladas; arvore ordena irmaos por tipo e FCID, nao por `orderIndex`; chats sem pai estrutural; `[[$PJ_LABS]]` resolve para PJ_CORE; `[[::chat<1-3>]]` nao suportado; texto do painel FCAS permanece apos trocar de artefato; ambiguidade sem candidatos na aba FCAS; ponto final do SN fica no meio da frase na expansao inline; no-orfao vira `NOT_FOUND` sem aviso proprio; referencias usam `RF_`, o plano previa `REF_`.
+- Sem controles na UI para editar, dividir, fundir ou regenerar (Lab 04) e, ate este teste, nenhuma interface para o Lab 06.
+- Incidentes do proprio teste: uma mensagem entrou como `user` por clique em select nativo (chat apagado com autorizacao do usuario e recriado); uma edicao indevida de `SN_KYYAM8` por um curl com corpo acentuado que falhou sem checagem (texto restaurado; o historico guarda 2 eventos `edit` a mais).
+
+## Resultado esperado
+
+Os seis labs operam sobre conteudo real sem corromper as fontes e respondem as perguntas da Parte 2.
+
+## Conclusao
+
+Validado com ressalvas
+
+## Evidencias
+
+- Banco `data/resources-test.db` (porta 3111), `resources/`, abas Assembly e Synthesis da UI.
+
+## Decisoes derivadas
+
+- Aba Synthesis implementada apenas em `main.js` (nota na ADR-006).
+
+## Pendencias
+
+- Defeitos D3 a D8; decisao sobre orfaos (ADR-015); itens do gate (Labs 03.5 e 01.5, `RF_` para `REF_`, sintaxe FCAS, `[[::chat]]`); decidir se o Lab 06 antecipado fica; `resources/` nao versionado.
+
+# EXP-013 - Validacao das decisoes de sintaxe FCAS, REF_, orfaos e chat sob o workspace
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping  
+Lab 03 - FCAS Resolution  
+Lab 05 - Context Assembly  
+Lab 06 - Synthetic Projection
+
+## Hipotese
+
+As decisoes da ADR-017 a ADR-021 fecham D4, D5 e D6, o prefixo `REF_` e o estado `ORPHANED` sem alterar o comportamento dos demais fluxos.
+
+## Procedimento
+
+1. Escrever primeiro `src/tests/fcas.test.ts` (F01 a F27) e confirmar que falham: 22 de 27 falharam; os 5 que passavam cobriam comportamento que ja existia ou passavam por acidente (F21).
+2. Implementar o parser (`messageRange`, `concept`, `alias`), `resolveByName`, as tres classes de erro, `REF_`, `findSupersession`, a janela de chat no Lab 05, os codigos novos no Lab 06, o `WS > CH` e os nomes do seed.
+3. Rodar `npx vitest run` contra uma copia do banco, `tsc --noEmit` e `npm run build`.
+4. Teste de mutacao com oito mutacoes (MA a MH).
+5. Conferir no banco real de recursos (porta 3111) e, em uma copia do banco na porta 3112, a aba Chat e a aba Document com um chat sob o WS.
+
+## Entrada
+
+- Testes sinteticos (`fcas.test.ts`).
+- Banco `data/resources-test.db`: chat `::padaria-duvidas-iniciante` (8 mensagens), `SN_2EZYSB` orfao, projetos sem `title`.
+
+## Resultado observado
+
+- Antes: 22 de 27 testes novos falhavam. Depois: 28 de 28 (inclui o F12b, escrito depois da mutacao ME), 119 de 119 no total, `tsc --noEmit` e build sem erro.
+- Mutacao: MA (janela ignorada) falhou F16 e F17; MB (orfao volta a `NOT_FOUND`) falhou F22 a F25 e F27; MC (projeto cai no primeiro) falhou F09 e F10; MD (chat sem pai) falhou F14 e F15; MF (alias lido como diretorio) falhou F05, F06 e F21; MG (os dois intervalos aceitos) falhou F19; MH (causa descartada) falhou F22.
+- Mutacao ME (condicao `targetFcid === artifact.fcid` na reconstrucao de nomes) **nao foi detectada**: a condicao nunca e falsa, porque um nome unico resolve para o proprio artefato. Foi removida como codigo morto. Uma segunda mutacao, a remocao do guard de tipo, so e detectada pelo F12b (diretorio chamado `colisao.md` ao lado de um documento de mesma chave), escrito para isso.
+- Banco real: `[[::padaria-duvidas-iniciante<2-3>]]` expande as mensagens 2 e 3 (`selection` 2 a 3 de 8); `<20-30>` vira `INVALID_RANGE`; `SN_2EZYSB` vira `ORPHANED` com `cause` = `regenerate` (`EVT_36A0MT7I`, raiz `MS_0OLX7A`) e `candidates` = `MS_Z3BEZV`; `[[$PJ_LABS]]` resolve pelo FCID; `[[#farinha]]` retorna 422 `UNSUPPORTED_SYNTAX`.
+- Efeito colateral: `[[$ForgeOS]]` retorna 404 nesse banco, porque os projetos criados antes nao tem `title`. Antes devolvia o primeiro projeto, que era o defeito D5.
+- UI (copia do banco): o chat novo aparece sob o WS na aba Chat e mostra as mensagens; a aba Document nao mostra chats.
+
+## Resultado esperado
+
+Nenhum teste anterior quebra; cada decisao tem pelo menos um teste que falha quando ela e desfeita.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/tests/fcas.test.ts`; `src/core/lab03Service.ts`, `lab04Service.ts` (`findSupersession`), `lab05Service.ts`, `lab06Service.ts`, `lab01Service.ts` (`createChat`), `src/seeds/seedData.ts`; `src/ui/main.js`.
+
+## Decisoes derivadas
+
+- ADR-017, ADR-018, ADR-019, ADR-020, ADR-021
+
+## Pendencias
+
+- D7 (reimportar duplica a arvore; `projection/remove` apaga o binding) e D8 seguem abertos; D7 e o escopo do Lab 01.5.
+- Nao ha resolvedor para conceito (`[[#slug]]`) nem para referencia nomeada (`[[@nome]]`); dependem do EPIC 24.
+- Dados anteriores nao sao reparados (projetos sem `title`, chats sem pai).
+- Nada foi commitado.
+
+
+# EXP-014 - Lab 01.5: reimportacao idempotente e migracao dos chats do ForgeOS
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01.5 - Chat Migration & Idempotent Import (com Lab 01, Lab 03 e Lab 04)
+
+## Hipotese
+
+H1 a H5 do `docs/lab 01.5.md`: reimportar sem mudanca nao altera nada; os FCIDs de `CH` e `MS` sobrevivem; o texto e reconstruivel e as perdas se classificam; a migracao e repetivel; as lacunas se listam completas.
+
+## Procedimento
+
+1. Inspecionar, numa copia do banco do ForgeOS, so o schema e agregados (nenhum conteudo lido).
+2. Escrever os testes antes do codigo: `lab015.test.ts` (Parte A, C01 a C20, mais R01, C15b, C15c, C16b, C18b) e `lab015Migration.test.ts` (Parte B, C21 a C33, mais C23b, C31b, C33b e dois de relatorio e de chave), com um banco sintetico no formato do ForgeOS. Os testes da Parte A falharam todos (20 de 22) antes do motor.
+3. Implementar `lab015Service.ts` (alinhamento LCS), `forgeosMigration.ts` e o comando `lab015:migrate`; extrair `applyEdit` e `applySemanticChange` do Lab 04.
+4. Teste de mutacao com 20 mutacoes (M01 a M20).
+5. Rodar o migrador na copia real, duas vezes, num banco novo da POC.
+
+## Entrada
+
+- Copia de `forgeos/.forgeos/forgeos.db`: 35 chats (24 ativos, 11 `deleted`), 204 mensagens, 25 referencias, 4 linhas de `chat_lineage`. **Banco de desenvolvimento: so dados de teste, o ForgeOS ainda nao tem usuarios** (informado depois da execucao). A compatibilidade de forma vale; os percentuais que dependem do conteudo sao de conversas de teste.
+
+## Resultado observado
+
+- Testes: 25 em `lab015.test.ts` e 18 em `lab015Migration.test.ts`; suite completa **162 de 162**, `tsc --noEmit` e build sem erro. Nenhum teste anterior quebrou; o F13 foi atualizado de 8 para 6 caracteres do `REF_` (decisao do usuario).
+- Mutacao: as 20 foram detectadas. M20 (casamento por posicao ignorando o papel) so foi detectada depois do C18b; as mutacoes M13 a M20 so rodaram de verdade depois que um erro de sintaxe que eu havia introduzido no arquivo de testes do migrador foi corrigido: a primeira rodada as marcou como erro de compilacao, e os "23 passaram" de uma rodada anterior eram so os testes da Parte A, porque meu filtro nao mostrava a linha "Test Files".
+- Execucao real, 1a vez: 24 chats e 165 mensagens migrados, 0 recusados; CH 24, MS 165, SS 184, PG 810, SN 1.619; FCIDs preservados 24 de 24 e 165 de 165; fidelidade `exact` 104, `whitespace` 2, `structure` 59, `loss` 0; referencias: 20 migradas (3 `stale`), 5 com alvo conceito; banco de 122.880 B para 872.448 B; 0,8 s.
+- Execucao real, 2a vez: nenhuma mudanca (2.805 artefatos, 2.804 arestas, 0 eventos, 24 projecoes e 20 referencias, antes e depois; 2.778 elementos mantidos; 20 referencias sem mudanca).
+- A copia nao foi alterada (data de modificacao igual a da copia). O banco original nao foi aberto pelo migrador.
+- Um achado do proprio teste: o mapeamento muda com a presenca de titulo (com titulo, as linhas do paragrafo sao unidas por espaco; sem titulo, a quebra de linha so sobrevive dentro de uma sentenca). O C33b foi escrito de novo por causa disso.
+
+## Resultado esperado
+
+Nenhuma duplicacao, nenhum FCID trocado sem evento, `loss` igual a zero, segunda execucao sem mudanca, relatorio com as lacunas e suas contagens.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada, e por execucao sobre uma copia dos dados reais, com a ressalva da estrutura: 59 de 165 mensagens (36%) mudam de forma (lista, enfase, regua, tabela, citacao, codigo).
+
+## Evidencias
+
+- `src/core/lab015Service.ts`, `forgeosMigration.ts`, `src/scripts/migrateForgeos.ts`, `lab04Service.ts` (`applyEdit`, `applySemanticChange`), `lab01Service.ts`, `lab03Service.ts`.
+- `src/tests/lab015.test.ts`, `lab015Migration.test.ts`.
+- `docs/results/lab-01.5-compatibilidade.md`; relatorios brutos em `data/lab015-report/` (fora do git).
+
+## Decisoes derivadas
+
+- ADR-022, ADR-023; atualizacao da ADR-018.
+
+## Pendencias
+
+- A decisao do EPIC 21 sobre a estrutura de bloco (ampliar o modelo ou manter o markdown original), `chat_lineage`, referencia a conceito, pai do chat e estado `deleted`.
+- Um unico banco de dados de teste, sem usuarios; custo em volume maior, proporcao de estrutura em conversas reais, edicao de mensagem pelo ForgeOS e relacao com `context_blocks` e `embeddings` nao foram medidos.
+- Dados criados antes desta mudanca nao sao reparados.
+- Nada foi commitado.
+
+
+# EXP-015 - Lab 03.5: estabilidade da referencia ao renomear, mover e reorganizar
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 03 - FCAS Resolution (Sub-Lab 03.5)
+
+## Hipotese
+
+Uma referencia continua valida ao renomear um documento, mover um diretorio e reorganizar a estrutura, porque e guardada pelo FCID do alvo; o que pode ficar velho e o texto FCAS guardado.
+
+## Procedimento
+
+1. Escrever primeiro `lab035.test.ts` (S01 a S20) e confirmar que falham: 20 de 20.
+2. Implementar `lab035Service.ts` (`rename`, `move`, `reorder`, `referenceStatus`, `refresh`) e as rotas.
+3. Rodar a suite inteira contra uma copia do banco, `tsc --noEmit` e `npm run build`.
+4. Teste de mutacao com 16 mutacoes (M01 a M16).
+
+## Entrada
+
+Documentos, diretorios e chats criados pela propria API de teste; referencias por nome, por secao, por FCID, por `<N>` e por nome de diretorio.
+
+## Resultado observado
+
+- Antes: 20 de 20 falhavam. Depois: 20 de 20; suite completa **182 de 182**; `tsc --noEmit` e build sem erro.
+- Renomear (S01 a S09): o FCID do documento, do chat ou do diretorio nao muda; o nome novo resolve para o mesmo artefato e o antigo retorna 404; a referencia criada com o nome antigo continua apontando para o mesmo alvo e passa a `stale`, com o FCAS canonico novo; `refresh` volta para `resolved`; a referencia escrita com o FCID nao e afetada; a chave repetida retorna 409 e a invalida, 422; dois diretorios com o mesmo titulo deixam a referencia `stale` e o FCID vira o endereco canonico.
+- Mover (S10 a S13): mover um diretorio ou um documento nao muda nenhuma referencia (continuam `resolved`, com o mesmo texto, porque o endereco e o nome e nao o caminho); mover para dentro de si ou de um descendente retorna 409 `CYCLE`; tipos nao movimentaveis ou pais invalidos retornam 422.
+- Reorganizar (S14 a S17): reordenar secoes ou documentos nao muda nenhuma referencia; reordenar mensagens mantem o alvo e deixa o `<2>` posicional `stale` (aponta para outra mensagem) com o canonico `<3>`; uma lista que nao e permutacao retorna 422 e nada muda.
+- Estados (S18 a S20): `evolved` com o FCID novo e o FCAS canonico, `orphaned` apos `regenerate`, e `refresh` recusado (409) quando o alvo nao esta ativo.
+- Mutacao: as 16 foram detectadas (M01 a M16, cada uma por pelo menos um teste). Nenhuma passou sem deteccao.
+
+## Resultado esperado
+
+A referencia continua valida nos tres cenarios; o que muda e o estado do texto guardado.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/core/lab035Service.ts`, `src/api/routes/lab03Routes.ts`, `src/core/lab03Schemas.ts`; `src/tests/lab035.test.ts`.
+
+## Decisoes derivadas
+
+- ADR-024
+
+## Pendencias
+
+- O significado do `stale` no ForgeOS nao foi verificado; a definicao da POC e uma proposta de reconciliacao.
+- Nao ha operacao de mover mensagem entre chats, mover secao entre documentos nem renomear projeto pela UI; as operacoes so existem na API.
+- As verificacoes do Lab 01 (D8) seguem abertas.
+- Nada foi commitado.
+
+
+# EXP-016 - Checklist manual da UI (fecha as pendencias do EXP-001 e do EXP-003)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 01 - Artifact Mapping
+Lab 02 - Projection Engine
+Lab 03 - FCAS Resolution
+
+## Hipotese
+
+Os fluxos que o EXP-001 e o EXP-003 deixaram para uma verificacao manual funcionam de ponta a ponta na interface, com o codigo atual.
+
+## Procedimento
+
+Passagem pela interface no navegador (viewport de 923 px), num banco novo e descartavel com o seed (porta 3112, removido depois): abrir a tela, importar documento pelo modal, importar diretorio, criar chat, enviar mensagens como `user` e `assistant`, selecionar na arvore, ver a projecao nos tres formatos, ver o inspector, usar a aba FCAS (parse, resolve, criar referencia), copiar o FCAS pela arvore e resetar o seed. Campos preenchidos com a ferramenta de formulario do navegador e botoes clicados; dois passos foram feitos por script na pagina (o JSON de documentos do diretorio, porque a ferramenta recusa texto em JSON, e a troca do formato `json`).
+
+## Entrada
+
+Seed minimo (`WS_MAIN`, `PJ_CORE`, `PJ_LABS`) e conteudo digitado na hora (um documento com duas secoes, um diretorio com dois documentos, um chat de duas mensagens).
+
+## Resultado observado
+
+- EXP-003: a arvore abre no workspace; o seletor de pai do import lista o workspace e os projetos (`PJ_CORE`, `PJ_LABS`); o documento importado no workspace aparece na arvore logo depois do envio.
+- EXP-001: importar documento, diretorio (`DR` na arvore) e chat (sob o workspace, ADR-021); mensagens como `user` e `assistant` aparecem nas duas bolhas com o FCID de cada; a selecao na arvore mostra a projecao em markdown, text e json (o JSON e valido) e o inspector (FCID, tipo, pai, filhos, referencias, metadados); na aba FCAS, parse, resolve com projecao (seleciona o alvo e mostra `## Descanso`) e criacao de referencia (`REF_` de 6 caracteres, `resolved`); o Reset Seeds volta a arvore para o workspace e os dois projetos.
+- Defeito achado e corrigido: depois de **Parse**, o campo FCAS ficava vazio (a tela se redesenha e perdia o valor), e o **Resolve** seguinte enviava texto vazio e falhava com "Request failed". Os dois campos da aba FCAS agora ficam em variaveis do modulo (`fcasText`, `fcasSourceText`), como os paineis Assembly e Synthesis; repetido depois da correcao, o Parse mantem os campos e o Resolve funciona sem redigitar.
+- Achado aberto: a projecao do documento mostra "Untitled Document" mesmo com o nome "Receita" digitado no import; o titulo fica na projecao e nao no DC (ja listado nos achados do EXP-012).
+- Nao verificado: o botao Copy da arvore. Nesta aba o navegador negou a escrita na area de transferencia (`Write permission denied`); o codigo chegou a pedir o FCAS e a escrever, e na sessao do EXP-012 o mesmo botao mostrou "Reference copied".
+- Nao exercitado: os campos de upload de arquivo (`Uploader (.md/.txt)` do documento e do diretorio); a passagem preencheu os campos de texto.
+
+## Resultado esperado
+
+Os fluxos centrais dos Labs 01 a 03 funcionam pela interface sem ajuste.
+
+## Conclusao
+
+Validado com ressalvas (defeito do FCAS corrigido; Copy e uploads de arquivo nao verificados)
+
+## Evidencias
+
+- `src/ui/main.js` (`fcasText`, `fcasSourceText`); passagem no navegador descrita acima.
+
+## Decisoes derivadas
+
+- Nenhuma. A correcao segue a ADR-006 (so no `main.js`).
+
+## Pendencias
+
+- Titulo do documento nao aparece na projecao ("Untitled Document").
+- Copy e uploads de arquivo, por falta de permissao do navegador e de automacao do seletor de arquivo.
+- Nada foi commitado.

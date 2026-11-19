@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, like, or } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   artifactEdges,
@@ -12,11 +12,11 @@ import { ensureArtifact, persistMessageContent } from "./lab01Service.js";
 
 // Lab 04 — Evolution & Lineage. Rules: docs/lab 04.md, ADR-004 and ADR-005.
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type ArtifactRow = typeof artifacts.$inferSelect;
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type ArtifactRow = typeof artifacts.$inferSelect;
 type EdgeRow = typeof artifactEdges.$inferSelect;
 
-export type EvolutionOperation = "edit" | "semantic_change" | "split" | "merge" | "regenerate";
+export type EvolutionOperation = "edit" | "semantic_change" | "split" | "merge" | "regenerate" | "remove" | "reimport";
 export type LineageRelation = "evolves_from" | "split_from" | "merged_from";
 
 export type Lab04ErrorCode =
@@ -53,7 +53,7 @@ function randomSuffix(len: number): string {
   return out;
 }
 
-function parseMeta(row: ArtifactRow): Record<string, unknown> {
+export function parseMeta(row: ArtifactRow): Record<string, unknown> {
   if (!row.metadataJson) return {};
   try {
     return JSON.parse(row.metadataJson) as Record<string, unknown>;
@@ -71,14 +71,15 @@ function newFcid(tx: Tx, type: string): string {
   throw new Error("Unable to generate unique FCID");
 }
 
-function insertArtifact(tx: Tx, type: string, metadata: Record<string, unknown>): string {
-  const fcid = newFcid(tx, type);
+/** `fixedFcid` adopts an existing identity (Lab 01.5 migration); without it a new FCID is generated. */
+export function insertArtifact(tx: Tx, type: string, metadata: Record<string, unknown> | null, fixedFcid?: string): string {
+  const fcid = fixedFcid ?? newFcid(tx, type);
   tx.insert(artifacts).values({
     fcid,
     type,
     category: type === "SN" ? "cognitive" : "structural",
     state: "active",
-    metadataJson: JSON.stringify(metadata),
+    metadataJson: metadata ? JSON.stringify(metadata) : null,
   }).run();
   return fcid;
 }
@@ -89,7 +90,7 @@ function getArtifact(tx: Tx, fcid: string): ArtifactRow {
   return row;
 }
 
-function getActive(tx: Tx, fcid: string): ArtifactRow {
+export function getActive(tx: Tx, fcid: string): ArtifactRow {
   const row = getArtifact(tx, fcid);
   if (row.state === "superseded") {
     throw new Lab04Error("SUPERSEDED", `Artifact ${fcid} is superseded`, { fcid, current: currentOf(tx, fcid) });
@@ -105,7 +106,7 @@ function parentEdge(tx: Tx, fcid: string): EdgeRow | undefined {
     .get();
 }
 
-function orderedChildren(tx: Tx, parentFcid: string): string[] {
+export function orderedChildren(tx: Tx, parentFcid: string): string[] {
   return tx
     .select()
     .from(artifactEdges)
@@ -116,7 +117,7 @@ function orderedChildren(tx: Tx, parentFcid: string): string[] {
 }
 
 /** Every artifact below `rootFcid` through `contains` edges, parents before children. */
-function subtreeOf(tx: Tx, rootFcid: string): string[] {
+export function subtreeOf(tx: Tx, rootFcid: string): string[] {
   const result: string[] = [];
   const seen = new Set<string>([rootFcid]);
   const queue = [rootFcid];
@@ -133,7 +134,7 @@ function subtreeOf(tx: Tx, rootFcid: string): string[] {
 }
 
 /** Replaces all `contains` children of a parent, renumbering orderIndex from 0. */
-function rewriteChildren(tx: Tx, parentFcid: string, childFcids: string[]): void {
+export function rewriteChildren(tx: Tx, parentFcid: string, childFcids: string[]): void {
   tx.delete(artifactEdges)
     .where(and(eq(artifactEdges.parentFcid, parentFcid), eq(artifactEdges.relationType, CONTAINS)))
     .run();
@@ -158,13 +159,13 @@ function replaceInParent(tx: Tx, oldFcids: string[], newFcids: string[]): string
   return edge.parentFcid;
 }
 
-function supersede(tx: Tx, fcids: string[]): void {
+export function supersede(tx: Tx, fcids: string[]): void {
   for (const fcid of fcids) {
     tx.update(artifacts).set({ state: "superseded", updatedAt: new Date() }).where(eq(artifacts.fcid, fcid)).run();
   }
 }
 
-function recordEvent(
+export function recordEvent(
   tx: Tx,
   operation: EvolutionOperation,
   inputs: string[],
@@ -184,7 +185,7 @@ function recordEvent(
   return eventId;
 }
 
-function addLineage(tx: Tx, descendantFcid: string, ancestorFcid: string, relationType: LineageRelation, eventId: string): void {
+export function addLineage(tx: Tx, descendantFcid: string, ancestorFcid: string, relationType: LineageRelation, eventId: string): void {
   tx.insert(artifactLineage).values({ descendantFcid, ancestorFcid, relationType, eventId }).run();
 }
 
@@ -272,77 +273,87 @@ export function classifyArtifactChange(fcid: string, text: string): Classificati
 
 // ---------- operations ----------
 
-export function editArtifact(input: { fcid: string; text?: string; title?: string }): {
+export type EditResult = {
   fcid: string;
   revision: number;
   eventId: string;
   classification?: Classification;
-} {
-  return db.transaction((tx) => {
-    const row = getActive(tx, input.fcid);
-    const meta = parseMeta(row);
-    const revision = Number(meta.revision ?? 1) + 1;
+};
 
-    let field: "text" | "title";
-    let value: string | undefined;
-    if (row.type === "SN") {
-      field = "text";
-      value = input.text;
-    } else if (row.type === "SS") {
-      field = "title";
-      value = input.title;
-    } else {
-      throw new Lab04Error("INVALID_OPERATION", `Edit is not supported for ${row.type}`);
-    }
-    if (value === undefined || (field === "text" ? input.title : input.text) !== undefined) {
-      throw new Lab04Error("INVALID_OPERATION", `Edit of ${row.type} requires only "${field}"`);
-    }
-
-    const previous = String(meta[field] ?? "");
-    if (previous === value) throw new Lab04Error("NO_CHANGE", "New value is identical to the current one");
-
-    tx.update(artifacts)
-      .set({ metadataJson: JSON.stringify({ ...meta, [field]: value, revision }), updatedAt: new Date() })
-      .where(eq(artifacts.fcid, row.fcid))
-      .run();
-    const eventId = recordEvent(
-      tx,
-      "edit",
-      [row.fcid],
-      [row.fcid],
-      { [field]: previous, revision: revision - 1 },
-      { [field]: value, revision },
-    );
-
-    return {
-      fcid: row.fcid,
-      revision,
-      eventId,
-      ...(field === "text" ? { classification: classifyChange(previous, value) } : {}),
-    };
-  });
+export function editArtifact(input: { fcid: string; text?: string; title?: string }): EditResult {
+  return db.transaction((tx) => applyEdit(tx, input));
 }
 
-export function semanticChange(input: { fcid: string; text: string }): {
+/** The body of `editArtifact` for callers that already hold a transaction (Lab 01.5). */
+export function applyEdit(tx: Tx, input: { fcid: string; text?: string; title?: string }): EditResult {
+  const row = getActive(tx, input.fcid);
+  const meta = parseMeta(row);
+  const revision = Number(meta.revision ?? 1) + 1;
+
+  let field: "text" | "title";
+  let value: string | undefined;
+  if (row.type === "SN") {
+    field = "text";
+    value = input.text;
+  } else if (row.type === "SS") {
+    field = "title";
+    value = input.title;
+  } else {
+    throw new Lab04Error("INVALID_OPERATION", `Edit is not supported for ${row.type}`);
+  }
+  if (value === undefined || (field === "text" ? input.title : input.text) !== undefined) {
+    throw new Lab04Error("INVALID_OPERATION", `Edit of ${row.type} requires only "${field}"`);
+  }
+
+  const previous = String(meta[field] ?? "");
+  if (previous === value) throw new Lab04Error("NO_CHANGE", "New value is identical to the current one");
+
+  tx.update(artifacts)
+    .set({ metadataJson: JSON.stringify({ ...meta, [field]: value, revision }), updatedAt: new Date() })
+    .where(eq(artifacts.fcid, row.fcid))
+    .run();
+  const eventId = recordEvent(
+    tx,
+    "edit",
+    [row.fcid],
+    [row.fcid],
+    { [field]: previous, revision: revision - 1 },
+    { [field]: value, revision },
+  );
+
+  return {
+    fcid: row.fcid,
+    revision,
+    eventId,
+    ...(field === "text" ? { classification: classifyChange(previous, value) } : {}),
+  };
+}
+
+export type SemanticChangeResult = {
   fcid: string;
   supersededFcid: string;
   eventId: string;
   classification: Classification;
-} {
-  return db.transaction((tx) => {
-    const row = getActive(tx, input.fcid);
-    if (row.type !== "SN") throw new Lab04Error("INVALID_OPERATION", "Semantic change is only supported for SN");
-    const previous = String(parseMeta(row).text ?? "");
-    if (previous === input.text) throw new Lab04Error("NO_CHANGE", "New text is identical to the current one");
+};
 
-    const fcid = insertArtifact(tx, "SN", { text: input.text, revision: 1 });
-    replaceInParent(tx, [row.fcid], [fcid]);
-    supersede(tx, [row.fcid]);
-    const eventId = recordEvent(tx, "semantic_change", [row.fcid], [fcid], { text: previous }, { text: input.text });
-    addLineage(tx, fcid, row.fcid, "evolves_from", eventId);
+export function semanticChange(input: { fcid: string; text: string }): SemanticChangeResult {
+  return db.transaction((tx) => applySemanticChange(tx, input));
+}
 
-    return { fcid, supersededFcid: row.fcid, eventId, classification: classifyChange(previous, input.text) };
-  });
+/** The body of `semanticChange` for callers that already hold a transaction (Lab 01.5). */
+export function applySemanticChange(tx: Tx, input: { fcid: string; text: string }): SemanticChangeResult {
+  const row = getActive(tx, input.fcid);
+  if (row.type !== "SN") throw new Lab04Error("INVALID_OPERATION", "Semantic change is only supported for SN");
+  const previous = String(parseMeta(row).text ?? "");
+  if (previous === input.text) throw new Lab04Error("NO_CHANGE", "New text is identical to the current one");
+
+  const fcid = insertArtifact(tx, "SN", { text: input.text, revision: 1 });
+  replaceInParent(tx, [row.fcid], [fcid]);
+  supersede(tx, [row.fcid]);
+  const eventId = recordEvent(tx, "semantic_change", [row.fcid], [fcid], { text: previous }, { text: input.text });
+  addLineage(tx, fcid, row.fcid, "evolves_from", eventId);
+
+  return { fcid, supersededFcid: row.fcid, eventId, classification: classifyChange(previous, input.text) };
 }
 
 export function splitArtifact(input: { fcid: string; parts?: string[]; boundaries?: number[] }): {
@@ -570,6 +581,37 @@ export function getLineage(fcid: string): unknown {
       events,
     };
   });
+}
+
+export type Supersession = {
+  eventId: string;
+  operation: string;
+  /** The artifact the event replaced: the queried FCID itself, or the ancestor whose subtree held it (regenerate). */
+  supersededRoot: string;
+  /** What the event produced. Container-level hints, not a one-to-one mapping for the descendants. */
+  replacedBy: string[];
+};
+
+/** The latest event that retired `fcid`, directly or as part of a replaced subtree. Null if none is recorded. */
+export function findSupersession(fcid: string): Supersession | null {
+  const pattern = `%"${fcid}"%`;
+  const row = db
+    .select()
+    .from(evolutionEvents)
+    .where(or(like(evolutionEvents.inputsJson, pattern), like(evolutionEvents.beforeJson, pattern)))
+    .orderBy(desc(evolutionEvents.createdAt))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  const inputs = parseJson(row.inputsJson);
+  const outputs = parseJson(row.outputsJson);
+  const inputList = Array.isArray(inputs) ? (inputs as string[]) : [];
+  return {
+    eventId: row.eventId,
+    operation: row.operation,
+    supersededRoot: inputList.includes(fcid) ? fcid : (inputList[0] ?? fcid),
+    replacedBy: Array.isArray(outputs) ? (outputs as string[]) : [],
+  };
 }
 
 export function getCurrentFcids(fcid: string): { fcid: string; state: string; current: string[] } {

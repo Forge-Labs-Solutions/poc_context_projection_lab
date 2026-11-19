@@ -18,6 +18,9 @@ let lineageData = null;
 let parseValue = "";
 let resolveValue = "";
 let targetValue = "";
+// The FCAS fields live here because render() rebuilds the DOM and would empty them after Parse.
+let fcasText = "";
+let fcasSourceText = "";
 
 async function request(url, init) {
   const response = await fetch(url, init);
@@ -132,7 +135,7 @@ function getVisibleFcidSet() {
   const map = byFcidMap(all);
 
   // Assembly can target documents and chats alike, so nothing is filtered out.
-  if (state.activePanel === "assembly") return new Set(all.map((n) => n.fcid));
+  if (state.activePanel === "assembly" || state.activePanel === "synthesis") return new Set(all.map((n) => n.fcid));
 
   if (state.activePanel === "chat") {
     const chatFcids = all.filter((n) => n.type === "CH").map((n) => n.fcid);
@@ -179,6 +182,8 @@ function getVisibleFcidSet() {
     changed = false;
     for (const node of all) {
       if (visible.has(node.fcid)) continue;
+      // Chats hang from the workspace (ADR-021) but belong to the Chat tab, not to the document tree.
+      if (node.type === "CH") continue;
       if ((node.parent || []).some((p) => visible.has(p))) {
         visible.add(node.fcid);
         changed = true;
@@ -413,6 +418,17 @@ function escapeAttr(value) {
   return escapeHtml(value).replaceAll('"', "&quot;");
 }
 
+/** Candidates and, for ORPHANED, the event that retired the target (ADR-019). */
+function warningExtras(w) {
+  const cause = w.cause
+    ? `<div class="lineage-io">cause: ${escapeHtml(w.cause.operation)} (${escapeHtml(w.cause.eventId)}), replaced ${lineageLink(w.cause.supersededRoot)}</div>`
+    : "";
+  const candidates = w.candidates
+    ? `<div class="lineage-io">${w.code === "ORPHANED" ? "replaced by (container)" : "candidates"}: ${w.candidates.map(lineageLink).join(" ")}</div>`
+    : "";
+  return cause + candidates;
+}
+
 async function assemblyRequest(url, payload) {
   try {
     const response = await fetch(url, {
@@ -533,7 +549,8 @@ function renderAssemblyDetails() {
 
   if (r.manifest.length > 0) {
     const items = r.manifest.map((entry) => {
-      const via = entry.via ? ` <span class="lineage-rel">via ${escapeHtml(entry.via)}</span>` : "";
+      const via = (entry.via ? ` <span class="lineage-rel">via ${escapeHtml(entry.via)}</span>` : "")
+        + (entry.selection ? ` <span class="lineage-rel">window ${entry.selection.from}&ndash;${entry.selection.to} of ${entry.selection.total}</span>` : "");
       const evolved = entry.evolvedFrom ? ` <span class="lineage-rel">evolved from ${lineageLink(entry.evolvedFrom)}</span>` : "";
       return `<li style="margin-left:${entry.depth * 14}px"><span class="badge badge-${entry.role}">${entry.role}</span> ${escapeHtml(entry.type)} ${lineageLink(entry.fcid)}${via}${evolved}</li>`;
     }).join("");
@@ -542,7 +559,7 @@ function renderAssemblyDetails() {
 
   if (r.warnings.length > 0) {
     const items = r.warnings.map((w) => {
-      const candidates = w.candidates ? `<div class="lineage-io">candidates: ${w.candidates.map(lineageLink).join(" ")}</div>` : "";
+      const candidates = warningExtras(w);
       return `<li><span class="badge badge-warning">${escapeHtml(w.code)}</span> <code>${escapeHtml(w.fcas)}</code> <span class="hint">depth ${w.depth}</span><div class="hint">${escapeHtml(w.message)}</div>${candidates}</li>`;
     }).join("");
     parts.push(`<div class="lineage-block"><div class="hint">Warnings (${r.warnings.length})</div><ul class="lineage-list">${items}</ul></div>`);
@@ -594,8 +611,214 @@ function bindAssembly() {
   };
 }
 
+// ---------- Synthesis panel (Lab 06) ----------
+// Same rule as the assembly panel: form values live here because render() rebuilds the DOM.
+// A synthetic projection is a computed view; nothing it shows is stored.
+
+const synth = {
+  mode: "items",
+  kind: "view",
+  title: "",
+  items: "",
+  template: "",
+  randomType: "SN",
+  randomCount: 3,
+  seed: "",
+  scope: "",
+  expand: true,
+  maxDepth: 3,
+  format: "markdown",
+  result: null,
+  error: "",
+};
+
+function synthItemLines() {
+  return synth.items.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+async function runSynthesize() {
+  const payload = { kind: synth.kind, expand: synth.expand, maxDepth: synth.maxDepth, format: synth.format };
+  if (synth.title.trim() !== "" && synth.kind !== "chat") payload.title = synth.title.trim();
+
+  if (synth.mode === "items") {
+    payload.items = synthItemLines();
+    if (payload.items.length === 0) {
+      synth.result = null;
+      synth.error = "Informe ao menos um item (uma referencia FCAS ou FCID por linha) ou clique em artefatos da arvore.";
+      return;
+    }
+  } else if (synth.mode === "random") {
+    payload.random = { type: synth.randomType, count: Number(synth.randomCount) };
+    if (synth.seed !== "") payload.random.seed = Number(synth.seed);
+    if (synth.scope.trim() !== "") payload.random.scope = synth.scope.trim();
+  } else {
+    if (synth.kind === "chat") {
+      synth.result = null;
+      synth.error = "Template nao e permitido para kind chat.";
+      return;
+    }
+    if (synth.template.trim() === "") {
+      synth.result = null;
+      synth.error = "Escreva um template (texto livre com referencias [[...]]).";
+      return;
+    }
+    payload.template = synth.template;
+  }
+
+  const outcome = await assemblyRequest("/v1/lab06/synthesize", payload);
+  if (outcome.error) {
+    synth.result = null;
+    synth.error = outcome.error;
+    return;
+  }
+  synth.result = outcome.data;
+  synth.error = "";
+}
+
+/** In the Synthesis tab a tree click builds the input instead of running something. */
+function pickForSynthesis(fcid) {
+  if (synth.mode === "items") {
+    synth.items = synth.items.trim() === "" ? `[[${fcid}]]` : `${synth.items.replace(/\s+$/, "")}\n[[${fcid}]]`;
+  } else if (synth.mode === "random") {
+    synth.scope = fcid;
+  } else {
+    synth.template = synth.template.trim() === "" ? `[[${fcid}]]` : `${synth.template.replace(/\s+$/, "")}\n\n[[${fcid}]]`;
+  }
+}
+
+function renderSynthesisCenter() {
+  const s = synth;
+  const modes = [["items", "Items"], ["random", "Random"], ["template", "Template"]];
+  const kinds = ["view", "document", "chat"].map((k) => `<option value="${k}" ${s.kind === k ? "selected" : ""}>${k}</option>`).join("");
+  const depthOptions = [1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${s.maxDepth === n ? "selected" : ""}>${n}</option>`).join("");
+  const formatOptions = ["markdown", "text"].map((f) => `<option value="${f}" ${s.format === f ? "selected" : ""}>${f}</option>`).join("");
+  const typeOptions = ["SN", "PG", "SS", "MS"].map((t) => `<option value="${t}" ${s.randomType === t ? "selected" : ""}>${t}</option>`).join("");
+
+  const body = s.mode === "items"
+    ? `<label>Items (one FCAS reference or FCID per line)</label>
+      <textarea id="syn-items" placeholder="[[docs/ingredientes-basicos.md#Farinha]]&#10;[[SN_ABC123]]&#10;[[::meu-chat&lt;2&gt;]]">${escapeHtml(s.items)}</textarea>
+      <div class="hint">Click an artifact in the tree to append it as an item. Each item must be written as [[...]] or be an FCID.</div>`
+    : s.mode === "random"
+      ? `<div class="asm-row">
+          <div><label>Type</label><select id="syn-rtype">${typeOptions}</select></div>
+          <div><label>Count</label><input id="syn-rcount" type="number" min="1" max="50" value="${escapeAttr(s.randomCount)}" /></div>
+        </div>
+        <div class="asm-row">
+          <div><label>Seed (empty = draw one)</label><input id="syn-seed" type="number" min="0" value="${escapeAttr(s.seed)}" placeholder="e.g. 42" /></div>
+          <div><label>Scope (FCAS or FCID, optional)</label><input id="syn-scope" value="${escapeAttr(s.scope)}" placeholder="whole workspace" /></div>
+        </div>
+        <div class="hint">Click an artifact in the tree to use it as scope. The same seed on the same data gives the same draw.</div>`
+      : `<label>Template (free text with FCAS references)</label>
+      <textarea id="syn-template" placeholder="Resumo do tema.&#10;&#10;[[docs/ingredientes-basicos.md#Farinha]]">${escapeHtml(s.template)}</textarea>`;
+
+  const output = s.error
+    ? `<div class="asm-error">${escapeHtml(s.error)}</div>`
+    : s.result
+      ? `<pre>${escapeHtml(s.result.content.length > 0 ? s.result.content : "(empty projection)")}</pre>`
+      : `<div class="hint">Run a synthesis to see the result. It is computed on demand and creates nothing.</div>`;
+
+  return `<h3>Synthesis</h3>
+    <div class="tabs asm-modes">${modes.map(([id, label]) => `<button data-syn-mode="${id}" class="${s.mode === id ? "active" : ""}">${label}</button>`).join("")}</div>
+    <div class="asm-row">
+      <div><label>Kind</label><select id="syn-kind">${kinds}</select></div>
+      <div><label>Title${s.kind === "chat" ? " (not for chat)" : ""}</label><input id="syn-title" value="${escapeAttr(s.title)}" ${s.kind === "chat" ? "disabled" : ""} placeholder="(optional)" /></div>
+    </div>
+    ${body}
+    <div class="asm-row">
+      <div><label>maxDepth</label><select id="syn-depth">${depthOptions}</select></div>
+      <div><label>Format</label><select id="syn-format">${formatOptions}</select></div>
+    </div>
+    <label class="asm-check"><input type="checkbox" id="syn-expand" ${s.expand ? "checked" : ""} />Expand FCAS references</label>
+    <div class="asm-actions"><button id="syn-run" class="asm-primary">${s.mode === "random" ? "Draw" : "Synthesize"}</button><button id="syn-clear">Clear</button></div>
+    ${output}`;
+}
+
+function renderSynthesisDetails() {
+  const r = synth.result;
+  if (!r) return `<h3>Manifest</h3><div class="hint">No synthesis yet.</div>`;
+
+  const parts = [`<h3>Manifest</h3>`];
+  parts.push(`<div class="lineage-block"><div class="hint">Mode</div><div>${escapeHtml(r.mode)} &middot; kind ${escapeHtml(r.kind)}${r.title ? ` &middot; "${escapeHtml(r.title)}"` : ""}</div></div>`);
+  if (r.random) {
+    const scope = r.random.scope ? lineageLink(r.random.scope) : "whole workspace";
+    parts.push(`<div class="lineage-block"><div class="hint">Random draw</div><div>${escapeHtml(r.random.type)}: picked ${r.random.picked} of ${r.random.requested} requested, pool ${r.random.poolSize}</div><div>seed <code>${r.random.seed}</code> <button id="syn-use-seed">Use this seed</button></div><div class="hint">scope: ${scope}</div></div>`);
+  }
+  parts.push(`<div class="lineage-block"><div class="hint">Stats</div><div>items ${r.stats.items} &middot; expanded ${r.stats.expanded} &middot; warnings ${r.stats.warnings}</div></div>`);
+
+  if (r.manifest.length > 0) {
+    const items = r.manifest.map((entry) => {
+      const position = entry.position !== undefined ? `<span class="hint">#${entry.position}</span> ` : "";
+      const via = (entry.via ? ` <span class="lineage-rel">via ${escapeHtml(entry.via)}</span>` : "")
+        + (entry.selection ? ` <span class="lineage-rel">window ${entry.selection.from}&ndash;${entry.selection.to} of ${entry.selection.total}</span>` : "");
+      const evolved = entry.evolvedFrom ? ` <span class="lineage-rel">evolved from ${lineageLink(entry.evolvedFrom)}</span>` : "";
+      return `<li style="margin-left:${entry.depth * 14}px">${position}<span class="badge badge-${entry.role === "item" ? "selected" : "expanded"}">${entry.role}</span> ${escapeHtml(entry.type)} ${lineageLink(entry.fcid)}${via}${evolved}</li>`;
+    }).join("");
+    parts.push(`<div class="lineage-block"><div class="hint">Composed of (${r.manifest.length})</div><ul class="lineage-list">${items}</ul></div>`);
+  }
+
+  if (r.warnings.length > 0) {
+    const items = r.warnings.map((w) => {
+      const position = w.position !== undefined ? `<span class="hint">#${w.position}</span> ` : "";
+      const candidates = warningExtras(w);
+      return `<li>${position}<span class="badge badge-warning">${escapeHtml(w.code)}</span> <code>${escapeHtml(w.fcas)}</code> <span class="hint">depth ${w.depth}</span><div class="hint">${escapeHtml(w.message)}</div>${candidates}</li>`;
+    }).join("");
+    parts.push(`<div class="lineage-block"><div class="hint">Warnings (${r.warnings.length})</div><ul class="lineage-list">${items}</ul></div>`);
+  }
+  return parts.join("");
+}
+
+function bindSynthesis() {
+  document.querySelectorAll("[data-syn-mode]").forEach((btn) => btn.onclick = () => {
+    synth.mode = btn.dataset.synMode;
+    synth.result = null;
+    synth.error = "";
+    rerender();
+  });
+
+  const run = async () => { await runSynthesize(); rerender(); };
+  const text = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) el.oninput = () => { synth[key] = el.value; };
+  };
+  text("syn-items", "items");
+  text("syn-template", "template");
+  text("syn-title", "title");
+  text("syn-rcount", "randomCount");
+  text("syn-seed", "seed");
+  text("syn-scope", "scope");
+
+  const pick = (id, key, convert) => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = () => { synth[key] = convert ? convert(el.value) : el.value; rerender(); };
+  };
+  pick("syn-kind", "kind");
+  pick("syn-rtype", "randomType");
+  pick("syn-depth", "maxDepth", Number);
+  pick("syn-format", "format");
+  const expand = document.getElementById("syn-expand");
+  if (expand) expand.onchange = () => { synth.expand = expand.checked; };
+
+  const runBtn = document.getElementById("syn-run");
+  if (runBtn) runBtn.onclick = () => void run();
+  const clear = document.getElementById("syn-clear");
+  if (clear) clear.onclick = () => {
+    synth.items = "";
+    synth.template = "";
+    synth.scope = "";
+    synth.seed = "";
+    synth.result = null;
+    synth.error = "";
+    rerender();
+  };
+  const useSeed = document.getElementById("syn-use-seed");
+  if (useSeed) useSeed.onclick = () => {
+    if (synth.result && synth.result.random) synth.seed = String(synth.result.random.seed);
+    rerender();
+  };
+}
+
 function renderChatCenter() {
-  const selectedChat = findSelectedChatFcidFromFlat(state.visibleFlat, state.selectedFcid);
+  const selectedChat =findSelectedChatFcidFromFlat(state.visibleFlat, state.selectedFcid);
   const selectedNode = state.visibleFlat.find((n) => n.fcid === state.selectedFcid) || null;
   const map = byFcidMap(state.visibleFlat);
 
@@ -621,7 +844,7 @@ function renderChatCenter() {
 }
 
 function renderFcas() {
-  return `<section><h2>FCAS Search</h2><label>FCAS</label><input id="fcas-input" placeholder="[[architecture.md#Introduction]]" /><button id="fcas-parse">Parse</button> <button id="fcas-resolve">Resolve + Project</button><label>Source FCID (optional for reference)</label><input id="fcas-source" placeholder="CH_ABC123" /><button id="fcas-reference">Create reference</button><pre>${escapeHtml(`Parse:\n${parseValue}\n\nResolve:\n${resolveValue}\n\nProjection:\n${targetValue}`)}</pre></section>`;
+  return `<section><h2>FCAS Search</h2><label>FCAS</label><input id="fcas-input" value="${escapeAttr(fcasText)}" placeholder="[[architecture.md#Introduction]]" /><button id="fcas-parse">Parse</button> <button id="fcas-resolve">Resolve + Project</button><label>Source FCID (optional for reference)</label><input id="fcas-source" value="${escapeAttr(fcasSourceText)}" placeholder="CH_ABC123" /><button id="fcas-reference">Create reference</button><pre>${escapeHtml(`Parse:\n${parseValue}\n\nResolve:\n${resolveValue}\n\nProjection:\n${targetValue}`)}</pre></section>`;
 }
 
 function renderDocumentModal() {
@@ -643,6 +866,7 @@ function projectOptions() {
 async function selectFcid(fcid) {
   state.selectedFcid = fcid;
   const inAssembly = state.activePanel === "assembly";
+  if (state.activePanel === "synthesis") pickForSynthesis(fcid);
   if (inAssembly) setAssemblyTarget(fcid);
   await Promise.all([refreshProjection(), refreshInspector()]);
   if (inAssembly) await runAssemble();
@@ -665,6 +889,7 @@ function bindDom() {
   });
 
   bindAssembly();
+  bindSynthesis();
 
   document.querySelectorAll("[data-lineage-select]").forEach((el) => el.onclick = () => {
     void selectFcid(el.dataset.lineageSelect || "");
@@ -758,6 +983,11 @@ function bindDom() {
   const closeModal = document.getElementById("close-modal");
   if (closeModal) closeModal.onclick = () => { state.modal = null; rerender(); };
 
+  const fcasInput = document.getElementById("fcas-input");
+  if (fcasInput) fcasInput.oninput = () => { fcasText = fcasInput.value; };
+  const fcasSource = document.getElementById("fcas-source");
+  if (fcasSource) fcasSource.oninput = () => { fcasSourceText = fcasSource.value; };
+
   const parseBtn = document.getElementById("fcas-parse");
   if (parseBtn) parseBtn.onclick = async () => {
     const fcas = document.getElementById("fcas-input").value.trim();
@@ -810,14 +1040,16 @@ async function copyFcasReference(fcid) {
 }
 
 function render() {
-  const title = state.activePanel === "chat" ? "Chat View" : state.activePanel === "fcas" ? "FCAS Search" : state.activePanel === "assembly" ? "Assembly View" : "Document View";
+  const title = state.activePanel === "chat" ? "Chat View" : state.activePanel === "fcas" ? "FCAS Search" : state.activePanel === "assembly" ? "Assembly View" : state.activePanel === "synthesis" ? "Synthesis View" : "Document View";
   const subtitle = state.activePanel === "chat"
     ? "Explore e projete chats e mensagens"
     : state.activePanel === "fcas"
       ? "Parse, resolve e projete referencias FCAS"
       : state.activePanel === "assembly"
         ? "Monte views completas ou parciais e expanda referencias FCAS"
-        : "Explore e projete artefatos de documentos";
+        : state.activePanel === "synthesis"
+          ? "Componha projecoes sinteticas (itens, sorteio com seed ou template); nada e gravado"
+          : "Explore e projete artefatos de documentos";
 
   const app = document.getElementById("app");
   if (!app) return;
@@ -830,17 +1062,17 @@ function render() {
       </header>
       <main class="main">
         <section class="panel">
-          <div class="panel-head"><div class="tabs"><button data-panel="document" class="${state.activePanel === "document" ? "active" : ""}">Document</button><button data-panel="chat" class="${state.activePanel === "chat" ? "active" : ""}">Chat</button><button data-panel="fcas" class="${state.activePanel === "fcas" ? "active" : ""}">FCAS</button><button data-panel="assembly" class="${state.activePanel === "assembly" ? "active" : ""}">Assembly</button></div><div>${state.toast ? `<span class="toast">${state.toast}</span>` : ""}</div></div>
+          <div class="panel-head"><div class="tabs"><button data-panel="document" class="${state.activePanel === "document" ? "active" : ""}">Document</button><button data-panel="chat" class="${state.activePanel === "chat" ? "active" : ""}">Chat</button><button data-panel="fcas" class="${state.activePanel === "fcas" ? "active" : ""}">FCAS</button><button data-panel="assembly" class="${state.activePanel === "assembly" ? "active" : ""}">Assembly</button><button data-panel="synthesis" class="${state.activePanel === "synthesis" ? "active" : ""}">Synthesis</button></div><div>${state.toast ? `<span class="toast">${state.toast}</span>` : ""}</div></div>
           <div class="panel-grid">
             <div class="panel-col">
-              ${state.activePanel === "fcas" ? `<h3>FCAS Search</h3>${renderFcas()}` : state.activePanel === "document" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-import-document">Import Document</button><button id="open-import-directory">Import Directory</button></div></div>` : state.activePanel === "assembly" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3></div>` : `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-create-chat">Create Chat</button></div></div>`}
+              ${state.activePanel === "fcas" ? `<h3>FCAS Search</h3>${renderFcas()}` : state.activePanel === "document" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-import-document">Import Document</button><button id="open-import-directory">Import Directory</button></div></div>` : state.activePanel === "assembly" || state.activePanel === "synthesis" ? `<div class="col-actions"><h3>Arvore de Artefatos</h3></div>` : `<div class="col-actions"><h3>Arvore de Artefatos</h3><div class="right"><button id="open-create-chat">Create Chat</button></div></div>`}
               ${state.activePanel === "fcas" ? "" : renderTree((fcid) => selectFcid(fcid), (fcid) => copyFcasReference(fcid).then(render))}
             </div>
             <div class="panel-col">
-              ${state.activePanel === "chat" ? renderChatCenter() : state.activePanel === "assembly" ? renderAssemblyCenter() : `<h3>Projecao</h3><label>Format</label><select id="projection-format"><option value="markdown" ${state.projectionFormat === "markdown" ? "selected" : ""}>markdown</option><option value="text" ${state.projectionFormat === "text" ? "selected" : ""}>text</option><option value="json" ${state.projectionFormat === "json" ? "selected" : ""}>json</option></select><pre>${escapeHtml(previewValue)}</pre>`}
+              ${state.activePanel === "chat" ? renderChatCenter() : state.activePanel === "assembly" ? renderAssemblyCenter() : state.activePanel === "synthesis" ? renderSynthesisCenter() : `<h3>Projecao</h3><label>Format</label><select id="projection-format"><option value="markdown" ${state.projectionFormat === "markdown" ? "selected" : ""}>markdown</option><option value="text" ${state.projectionFormat === "text" ? "selected" : ""}>text</option><option value="json" ${state.projectionFormat === "json" ? "selected" : ""}>json</option></select><pre>${escapeHtml(previewValue)}</pre>`}
             </div>
             <div class="panel-col">
-              ${state.activePanel === "assembly" ? renderAssemblyDetails() : `<h3 style="margin-top:12px;">Inspector</h3><pre>${escapeHtml(inspectorValue)}</pre>
+              ${state.activePanel === "assembly" ? renderAssemblyDetails() : state.activePanel === "synthesis" ? renderSynthesisDetails() : `<h3 style="margin-top:12px;">Inspector</h3><pre>${escapeHtml(inspectorValue)}</pre>
               ${renderLineage()}`}
             </div>
           </div>

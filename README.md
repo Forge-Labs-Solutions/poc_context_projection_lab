@@ -4,9 +4,11 @@ Bootstrap tecnico da POC da Parte 2 do ForgeOS com Node.js, TypeScript, Fastify,
 
 ## Setup em 5 passos
 
+A POC usa **pnpm** (igual ao `forgeos` e ao `forge-hub`), na versao 11 ou superior: o `pnpm-workspace.yaml` usa `allowBuilds` para liberar o build nativo do `better-sqlite3` e do `esbuild`. Nao use `npm install`; o `package-lock.json` foi removido.
+
 1. Instale dependencias:
 ```bash
-npm install
+pnpm install
 ```
 
 2. Crie o arquivo de ambiente:
@@ -16,29 +18,30 @@ cp .env.example .env
 
 3. Gere as migrations:
 ```bash
-npm run db:generate
+pnpm run db:generate
 ```
 
 4. Aplique migrations e popule dados:
 ```bash
-npm run db:migrate
-npm run seed
+pnpm run db:migrate
+pnpm run seed
 ```
 
 5. Suba a API:
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ## Scripts
 
-- `npm run dev`: sobe API em modo desenvolvimento.
-- `npm run build`: compila TypeScript para `dist/`.
-- `npm run start`: executa build compilado.
-- `npm run test`: roda testes automatizados.
-- `npm run db:generate`: gera migration com Drizzle.
-- `npm run db:migrate`: aplica migrations no SQLite.
-- `npm run seed`: reseta e popula dataset base (`WS_MAIN` + 2 projetos).
+- `pnpm run dev`: sobe API em modo desenvolvimento.
+- `pnpm run build`: compila TypeScript para `dist/`.
+- `pnpm run start`: executa build compilado.
+- `pnpm run test`: roda testes automatizados.
+- `pnpm run db:generate`: gera migration com Drizzle.
+- `pnpm run db:migrate`: aplica migrations no SQLite.
+- `pnpm run seed`: reseta e popula dataset base (`WS_MAIN` + 2 projetos).
+- `pnpm run lab015:migrate --source <copia de forgeos.db>`: migra os chats de uma **copia** do banco do ForgeOS para o banco da POC (`DATABASE_URL`), em modo somente leitura; gera o relatorio em `data/lab015-report/`. O caminho do banco original (`.forgeos/forgeos.db`) e recusado.
 
 ## Endpoints
 
@@ -49,6 +52,7 @@ npm run dev
 - `POST /v1/seeds/reset`
 - `POST /v1/lab01/import/document`
 - `POST /v1/lab01/chat/create`
+- `POST /v1/lab01/chat/import`
 - `POST /v1/lab01/chat/:chatFcid/messages`
 - `POST /v1/lab01/projection/remove`
 - `GET /v1/lab01/explorer/artifacts`

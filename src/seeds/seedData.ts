@@ -8,8 +8,8 @@ import {
 
 export const seedArtifacts: InferInsertModel<typeof artifacts>[] = [
   { fcid: "WS_MAIN", type: "WS", category: "structural", state: "active" },
-  { fcid: "PJ_CORE", type: "PJ", category: "structural", state: "active" },
-  { fcid: "PJ_LABS", type: "PJ", category: "structural", state: "active" },
+  { fcid: "PJ_CORE", type: "PJ", category: "structural", state: "active", metadataJson: JSON.stringify({ title: "ForgeOS" }) },
+  { fcid: "PJ_LABS", type: "PJ", category: "structural", state: "active", metadataJson: JSON.stringify({ title: "Labs" }) },
 ];
 
 export const seedEdges: InferInsertModel<typeof artifactEdges>[] = [

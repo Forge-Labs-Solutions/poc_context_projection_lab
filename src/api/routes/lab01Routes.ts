@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   addChatMessageSchema,
   createChatSchema,
+  importChatSchema,
   importDirectorySchema,
   importDocumentSchema,
   removeProjectionSchema,
@@ -16,6 +17,7 @@ import {
   removeProjection,
   validateProjection,
 } from "../../core/lab01Service.js";
+import { FcidConflictError, importChat } from "../../core/lab015Service.js";
 
 export function registerLab01Routes(app: FastifyInstance): void {
   app.post("/v1/lab01/import/document", async (request, reply) => {
@@ -63,6 +65,33 @@ export function registerLab01Routes(app: FastifyInstance): void {
     }
     const result = await createChat(parsed.data.resourceKey, parsed.data.title);
     return { data: result };
+  });
+
+  // Lab 01.5: creates the chat or brings an existing one to this conversation (idempotent).
+  app.post("/v1/lab01/chat/import", async (request, reply) => {
+    const parsed = importChatSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+    try {
+      const result = importChat(parsed.data);
+      return {
+        data: {
+          chatFcid: result.chatFcid,
+          projectionId: result.projectionId,
+          messageFcids: result.messageFcids,
+          reimport: result.created ? null : result.summary,
+        },
+      };
+    } catch (error) {
+      if (error instanceof FcidConflictError) {
+        return reply.code(409).send({ error: error.reason, code: "FCID_CONFLICT", details: { fcid: error.fcid } });
+      }
+      if (error instanceof Error && error.message === "MIXED_MESSAGE_IDENTITY") {
+        return reply.code(400).send({ error: "Give an fcid to every message or to none" });
+      }
+      return reply.code(500).send({ error: "Chat import failed" });
+    }
   });
 
   app.post<{ Params: { chatFcid: string } }>("/v1/lab01/chat/:chatFcid/messages", async (request, reply) => {

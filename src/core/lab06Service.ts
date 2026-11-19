@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { artifactEdges, artifacts } from "../db/schema.js";
-import { FcasAmbiguousError, resolveFcasToFcid } from "./lab03Service.js";
+import { FcasAmbiguousError, FcasNameAmbiguousError, FcasOrphanedError, FcasUnsupportedError, resolveFcasToFcid } from "./lab03Service.js";
 import {
   assemble,
   type AssemblyWarning,
@@ -25,6 +25,7 @@ export type Lab06ErrorCode =
   | "INVALID_ITEM"
   | "ITEM_TYPE_NOT_ALLOWED"
   | "ITEM_AMBIGUOUS"
+  | "ITEM_ORPHANED"
   | "SCOPE_NOT_FOUND"
   | "SCOPE_AMBIGUOUS"
   | "INVALID_SCOPE"
@@ -115,6 +116,24 @@ async function resolveScopeDescendants(scope: string): Promise<Set<string>> {
         originalFcid: error.originalFcid,
         candidates: error.candidates,
       });
+    }
+    if (error instanceof FcasNameAmbiguousError) {
+      throw new Lab06Error("SCOPE_AMBIGUOUS", `scope name "${error.name}" matches more than one artifact`, {
+        name: error.name,
+        candidates: error.candidates,
+      });
+    }
+    if (error instanceof FcasOrphanedError) {
+      // The scope exists but was replaced and nothing active is left under it (ADR-019).
+      throw new Lab06Error("SCOPE_NOT_FOUND", "scope target was superseded and has no active successor", {
+        orphaned: true,
+        originalFcid: error.originalFcid,
+        cause: error.cause,
+        candidates: error.candidates,
+      });
+    }
+    if (error instanceof FcasUnsupportedError) {
+      throw new Lab06Error("INVALID_SCOPE", `The ${error.syntax} syntax is not supported by this POC`);
     }
     if (error instanceof Error && error.message === "FCAS_INVALID") {
       throw new Lab06Error("INVALID_SCOPE", "Invalid FCAS syntax in scope");
@@ -212,7 +231,12 @@ function mapItemError(error: unknown, position: number, kind: SynthKind): unknow
         allowed: ALLOWED_TYPES[kind],
       });
     case "AMBIGUOUS":
-      return new Lab06Error("ITEM_AMBIGUOUS", `Item ${position} was split; choose one of the candidates`, {
+      return new Lab06Error("ITEM_AMBIGUOUS", `Item ${position} is ambiguous; choose one of the candidates`, {
+        position,
+        ...(error.details as object),
+      });
+    case "ORPHANED":
+      return new Lab06Error("ITEM_ORPHANED", `Item ${position} was superseded and has no active successor`, {
         position,
         ...(error.details as object),
       });
