@@ -754,3 +754,79 @@ Body:
 ```
 
 Resposta `200`: `content`, `manifest` (apenas entradas `expanded`), `warnings` e `stats`.
+
+## 8) Lab 06 - Synthetic Projection
+
+Regras em `docs/lab 06.md` (ADR-011 a ADR-014). Uma projecao sintetica e uma view calculada: nao cria artefatos, nao cria arestas e nao altera nenhuma fonte.
+
+### POST `/v1/lab06/synthesize`
+Compoe uma view a partir de artefatos de origens diferentes. Exatamente um entre `items`, `template` e `random`.
+
+Body (selecao):
+```json
+{
+  "kind": "document",
+  "title": "Resumo",
+  "items": ["PG_A7K2M9", "[[architecture.md#Introduction]]", "PG_B4L8Q2"]
+}
+```
+
+Body (template FCAS):
+```json
+{ "kind": "view", "template": "[[PG_A7K2M9]]\n\n[[PG_B4L8Q2]]\n\n[[MS_T2W7K5]]" }
+```
+
+Body (aleatorio):
+```json
+{ "kind": "view", "random": { "type": "SN", "count": 5, "seed": 42, "scope": "[[architecture.md]]" } }
+```
+
+Campos:
+- `kind`: `document` (aceita SN, PG, SS), `chat` (aceita MS) ou `view` (SN, PG, SS, MS). Padrao `view`. DC e CH nao sao aceitos como item.
+- `title`: apenas `document` e `view` (`# titulo` em markdown, titulo simples em text).
+- `items`: 1 a 200 FCIDs ou referencias FCAS. Ordem preservada; repeticao permitida.
+- `template`: texto com referencias FCAS; nao aceito em `chat`. Segue as regras de expansao do Lab 05.
+- `random`: `type` (SN, PG, SS, MS), `count` (1 a 50), `seed` (inteiro 0 a 4294967295, opcional) e `scope` (FCAS ou FCID que restringe o pool aos descendentes, opcional).
+- `expand` (padrao `true`), `maxDepth` (1 a 5, padrao 3) e `format` (`markdown` ou `text`): mesmas regras do Lab 05, aplicadas ao conteudo de cada item.
+
+Resposta `200`:
+```json
+{
+  "data": {
+    "kind": "view",
+    "mode": "random",
+    "format": "markdown",
+    "title": null,
+    "content": "...",
+    "manifest": [
+      { "fcid": "SN_A", "type": "SN", "role": "item", "depth": 0, "position": 1 },
+      { "fcid": "DC_X", "type": "DC", "role": "expanded", "depth": 1, "position": 1, "via": "[[plain.md]]" }
+    ],
+    "warnings": [
+      { "code": "NOT_FOUND", "fcas": "[[missing.md]]", "depth": 0, "message": "...", "position": 2 }
+    ],
+    "random": { "type": "SN", "requested": 5, "picked": 5, "poolSize": 12, "seed": 42, "scope": null },
+    "stats": { "items": 5, "expanded": 1, "warnings": 1 }
+  }
+}
+```
+
+- `mode`: `selection`, `random` ou `template`; `random` e `null` fora do modo random.
+- `manifest`: `role` e `item` (artefato escolhido) ou `expanded` (trazido por referencia); `position` indica o item de origem; `evolvedFrom` aparece quando o item passou por lineage.
+- No modo random a resposta devolve a `seed`; reenviando a mesma seed, com o mesmo pool, o resultado e identico. `count` acima do pool e reduzido (`picked`).
+
+Erros (`{ error, code, details }`):
+
+| Status | code | Quando |
+| --- | --- | --- |
+| 400 | - | body invalido: nenhum ou mais de um modo, `title` ou `template` em `chat`, `count` fora de 1..50, `maxDepth` fora de 1..5 |
+| 404 | `ITEM_NOT_FOUND` | item inexistente (`details.position`) |
+| 404 | `SCOPE_NOT_FOUND` | scope inexistente |
+| 409 | `ITEM_AMBIGUOUS` | item dividido pelo Lab 04 (`details.position`, `details.candidates`) |
+| 409 | `SCOPE_AMBIGUOUS` | scope dividido (`details.candidates`) |
+| 422 | `INVALID_ITEM` | item que nao e FCID nem FCAS |
+| 422 | `ITEM_TYPE_NOT_ALLOWED` | tipo fora do kind (`details.allowed`), inclusive DC, CH, WS, PJ e DR |
+| 422 | `INVALID_SCOPE` | scope que nao e FCID nem FCAS |
+| 422 | `EMPTY_POOL` | nenhum artefato ativo do tipo pedido |
+
+Itens escolhidos explicitamente sao estritos (falham o pedido); referencias dentro de template ou do conteudo dos itens sao lenientes (ficam literais e geram `warnings`, como no Lab 05).

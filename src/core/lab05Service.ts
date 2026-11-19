@@ -126,7 +126,7 @@ function warn(ctx: Ctx, code: WarningCode, fcas: string, depth: number, message:
   return null;
 }
 
-function normalizeTarget(target: string): string {
+export function normalizeTarget(target: string): string {
   const trimmed = target.trim();
   if (FCID_PATTERN.test(trimmed)) return `[[${trimmed}]]`;
   if (trimmed.startsWith("[[") && trimmed.endsWith("]]")) return trimmed;

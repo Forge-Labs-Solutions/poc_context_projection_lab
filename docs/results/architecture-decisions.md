@@ -454,3 +454,193 @@ Aceita
 O titulo do DC continua saindo como "Untitled Document", pois o DC guarda apenas `resourceKey` no metadata. Fora do escopo do Lab 05.
 
 Aprovada e implementada em 2026-11-19 (EXP-008); coberta pelo teste C02.
+
+# ADR-011 - Projecao sintetica como view calculada, sem persistencia e sem arestas
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 06 - Synthetic Projection  
+Lab 04 - Evolution & Lineage  
+Lab 05 - Context Assembly
+
+## Contexto
+
+O Lab 06 precisa criar views ineditas (documento, conversa, selecao livre) a partir de artefatos de origens diferentes. A forma mais direta seria criar um novo DC ou CH com arestas `contains` para PG/MS que ja existem, ou persistir uma definicao em tabelas novas.
+
+## Decisao
+
+- Uma projecao sintetica e uma view calculada a cada pedido: nao recebe FCID, nao e persistida, nao cria arestas em `artifact_edges` e nao altera nenhuma fonte.
+- O que identifica a view e o pedido que a gerou. Selecao manual e template sao reproduziveis pelo proprio pedido; a selecao aleatoria devolve a seed e e reproduzivel por ela.
+- Reaproveitar o Assembly Engine do Lab 05 para renderizar cada item e expandir as referencias do conteudo.
+- Invariantes verificaveis: sintese de todas as MS de um chat = projecao do CH; sintese dos PG de uma secao = montagem do SS com range; nenhuma linha dos artefatos, arestas, lineage ou eventos muda.
+
+## Alternativas consideradas
+
+- Novo DC/CH com arestas `contains` para artefatos existentes (filhos compartilhados)
+- Persistir a definicao da sintese em tabelas novas (listar, reabrir, nomear)
+- Copiar o conteudo para artefatos novos
+
+## Motivo
+
+Filhos compartilhados corrompem a view: o Lab 04 assume um unico pai por artefato. Verificado em 2026-11-19: um DC novo contendo os PG de um documento perdeu a primeira frase, sem erro, depois que um desses PG foi dividido pelo Lab 04 (a divisao trocou o PG apenas no primeiro pai; o outro ficou apontando para um PG substituido e vazio). Copiar conteudo duplicaria a fonte de verdade. Persistir uma definicao adiciona CRUD e migration sem ser necessario para responder a pergunta do lab; a view e descartavel por principio (projecao nao e fonte de verdade).
+
+## Impacto
+
+- Artifact Mapping: nenhuma mudanca de schema.
+- Projection Engine e FCAS Resolution: nenhuma mudanca; o Lab 06 apenas consome o Lab 05.
+- Evolution & Lineage: itens substituidos seguem a regra da ADR-005.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Persistir projecoes sinteticas fica como evolucao futura e deve decidir antes se a definicao referencia FCIDs (acompanha a evolucao) ou guarda um instantaneo. Detalhamento em `docs/lab 06.md`.
+
+Aprovada e implementada em 2026-11-19 (EXP-010) em `src/core/lab06Service.ts`. A unica mudanca em codigo anterior foi exportar `normalizeTarget` de `lab05Service`. Achado por teste de mutacao: a montagem segue o lineage, entao um artefato substituido que fosse sorteado seria trocado em silencio pelo atual no manifest; so o filtro de estado do pool impede isso (ver ADR-014).
+
+# ADR-012 - Kinds, tipos aceitos e modos da sintese
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 06 - Synthetic Projection
+
+## Contexto
+
+O spec lista cinco funcionalidades (Document Synthesis, Chat Synthesis, Random Projection, Selection Projection, FCAS-Based Projection) sem definir quais tipos cada uma aceita nem como os itens sao combinados.
+
+## Decisao
+
+- `kind` define a forma da view e valida os tipos dos itens: `document` aceita SN, PG e SS; `chat` aceita MS; `view` aceita SN, PG, SS e MS. DC, CH, WS, PJ e DR nao sao aceitos como item.
+- Tres modos mutuamente exclusivos por pedido: `items` (selecao), `random` e `template`. `template` aceita apenas `document` e `view`.
+- Cada item vira um bloco; os blocos sao separados por uma linha em branco, na ordem informada (no random, na ordem do sorteio). Itens repetidos sao permitidos.
+- `title` e aceito em `document` e `view` (`# titulo` em markdown, titulo simples em text) e recusado em `chat`.
+- Modo template reutiliza as regras de expansao da ADR-009: referencia sozinha no paragrafo expande qualquer alvo; no meio do texto, apenas SN e PG.
+
+## Alternativas consideradas
+
+- Aceitar DC e CH como item
+- Combinar SN consecutivos no mesmo paragrafo
+- Um endpoint por funcionalidade do spec
+- Permitir titulo em chat
+
+## Motivo
+
+Documento e chat inteiros ja sao montados pelo Lab 05; como item duplicariam cabecalhos. Cada item como bloco e previsivel e independe do tipo vizinho. Um unico endpoint com `kind` e modo cobre as cinco funcionalidades sem sobreposicao. Chats nao tem titulo na projecao do Lab 02.
+
+## Impacto
+
+- Projection Engine: nenhum.
+- FCAS Resolution: itens por FCAS reutilizam o resolver (inclusive `[[::chat<n>]]` e `[[doc#Secao]]`).
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Um chat sintetico exige itens MS explicitos; o modo template nao o cobre.
+
+Aprovada e implementada em 2026-11-19 (EXP-010). As regras de modo unico, titulo e template em chat sao validadas no schema (400); o tipo dos itens e validado no servico (422), depois de resolver o item, pois depende do tipo atual apos o lineage.
+
+# ADR-013 - Selecao explicita e estrita, referencias no conteudo sao lenientes
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 06 - Synthetic Projection  
+Lab 05 - Context Assembly
+
+## Contexto
+
+A ADR-009 definiu que uma referencia invalida dentro do conteudo vira warning e nunca derruba a montagem. O Lab 06 tem dois tipos de entrada: referencias dentro de um template e itens escolhidos explicitamente.
+
+## Decisao
+
+- Itens escolhidos explicitamente (modo selection) sao estritos e falham o pedido, sempre com a `position` do item: inexistente 404 `ITEM_NOT_FOUND`, invalido 422 `INVALID_ITEM`, tipo fora do kind 422 `ITEM_TYPE_NOT_ALLOWED` (com `allowed`), dividido 409 `ITEM_AMBIGUOUS` (com `candidates`).
+- Referencias dentro de template ou do conteudo dos itens continuam lenientes: ficam literais e geram warning, conforme a ADR-009. Warnings vindos de um item trazem sua `position`.
+- Item substituido com um unico descendente ativo usa o atual, com `evolvedFrom` no manifest; dividido nao e resolvido (ADR-005).
+
+## Alternativas consideradas
+
+- Descartar itens invalidos e registrar warning
+- Falhar tambem por referencias invalidas no template
+- Expandir um item dividido concatenando as partes
+
+## Motivo
+
+O usuario escolheu cada item; omitir um em silencio mudaria o significado da view sem aviso. Referencias dentro de texto sao incidentais e ja seguem a regra do Lab 05. Manter a ambiguidade como erro replica o resolver do Lab 03 e a ADR-009.
+
+## Impacto
+
+- FCAS Resolution: nenhuma mudanca.
+- Evolution & Lineage: consome `current` como o Lab 05.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+Mapeamento a partir dos erros do Lab 05: NOT_FOUND vira ITEM_NOT_FOUND, INVALID_TARGET vira INVALID_ITEM, UNSUPPORTED_SCOPE vira ITEM_TYPE_NOT_ALLOWED, AMBIGUOUS vira ITEM_AMBIGUOUS.
+
+Aprovada e implementada em 2026-11-19 (EXP-010). Itens sao processados em ordem e o primeiro erro interrompe o pedido; nenhuma fonte e alterada, inclusive nos pedidos que falham (invariante I4).
+
+# ADR-014 - Selecao aleatoria reproduzivel por seed
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 06 - Synthetic Projection
+
+## Contexto
+
+A Random Projection precisa sortear artefatos. Um sorteio nao reproduzivel impediria reabrir uma view sintetica sem persisti-la (ADR-011).
+
+## Decisao
+
+- O pool e formado pelos artefatos do tipo pedido (SN, PG, SS ou MS) em estado `active`; com `scope`, apenas os descendentes do alvo do scope (resolvido pelo Lab 03).
+- O pool e ordenado por FCID e o sorteio e uma embaralhada parcial (Fisher-Yates) com PRNG mulberry32 inicializado pela `seed`. A ordem da view e a ordem do sorteio.
+- Sem `seed`, o servidor gera uma de 32 bits e a devolve; com a mesma seed, tipo, count e pool, o resultado e identico.
+- `count` vai de 1 a 50; acima do tamanho do pool e reduzido (`random.picked` informa); pool vazio retorna 422 `EMPTY_POOL`.
+
+## Alternativas consideradas
+
+- `Math.random` sem seed
+- Persistir os FCIDs sorteados
+- Reduzir o count silenciosamente sem informar o total sorteado
+- Sorteio ponderado ou filtrado por conteudo
+
+## Motivo
+
+Seed devolvida dispensa persistencia e torna o resultado verificavel por teste. Ordenar o pool por FCID remove a dependencia da ordem de insercao do banco. Informar `picked` e `poolSize` evita surpresa quando o pedido excede o pool.
+
+## Impacto
+
+- Artifact Mapping: nenhum.
+- Evolution & Lineage: artefatos substituidos nao fazem parte do grafo estrutural e nunca entram no pool; a mesma seed pode sortear diferente depois de uma evolucao, pois o pool mudou.
+
+## Status
+
+Aceita
+
+## Observacoes
+
+A reproducao e garantida enquanto o pool nao mudar. mulberry32 nao e criptografico e serve apenas a reproducao.
+
+Aprovada e implementada em 2026-11-19 (EXP-010). `random.poolSize` e o tamanho do pool depois do filtro de `scope`. O filtro de estado `active` e necessario mesmo com a montagem seguindo o lineage: sem ele um artefato substituido seria sorteado e aparece no manifest como o seu substituto, possivelmente duplicado. Um artefato substituido ja sai de qualquer `scope`, pois nao tem pai estrutural.

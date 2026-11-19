@@ -536,3 +536,75 @@ Validado
 - Nao verificado no navegador: clique em um candidato de `AMBIGUOUS`, os seletores `maxDepth` e `Format`, a opcao de desligar a expansao, a tecla Enter no campo de alvo e o layout em largura estreita.
 - A arvore da aba Assembly mostra todos os artefatos, incluindo SN, e fica longa em bancos grandes.
 - Alterar o formulario nao refaz a montagem; e preciso clicar em Assemble.
+
+# EXP-010 - Validacao do Lab 06 (Synthetic Projection)
+
+## Data
+
+2026-11-19
+
+## Lab relacionado
+
+Lab 06 - Synthetic Projection  
+Lab 05 - Context Assembly  
+Lab 04 - Evolution & Lineage
+
+## Hipotese
+
+Uma camada de sintese sobre o Assembly Engine (ADR-011 a ADR-014) compoe views ineditas a partir de artefatos de origens diferentes, escolhidos manualmente, ao acaso ou por referencias FCAS, sem criar nada nem alterar as fontes, de forma reproduzivel e rastreavel.
+
+## Procedimento
+
+1. Implementar o Synthesis Engine em `src/core/lab06Service.ts` e a rota `POST /v1/lab06/synthesize`; exportar `normalizeTarget` de `lab05Service` (unica mudanca em codigo anterior).
+2. Escrever os cenarios C01-C22 de `docs/lab 06.md` em `src/tests/lab06.test.ts`.
+3. Executar `npx vitest run` contra uma copia do banco, com `tsc --noEmit` e `npm run build`.
+4. Teste de mutacao: (M1) remover o filtro `state = active` do pool aleatorio; (M2) fazer o sorteio ignorar a seed.
+5. Antes de decidir o desenho, testar a alternativa "DC novo com PG compartilhados" apos um split do Lab 04.
+
+## Entrada
+
+- Documentos com varios paragrafos e secoes, chats de 2 a 4 mensagens, referencias a SN editado, substituido e dividido.
+- O banco acumulado da propria suite (dezenas de SN) como pool do sorteio.
+
+## Resultado observado
+
+- 85 de 85 testes passaram (63 anteriores, 22 do Lab 06).
+- `tsc --noEmit` e `npm run build` sem erros.
+- Documento composto por PG de dois documentos, com titulo; chat composto por MS de dois chats, com roles preservados; view livre com SN, PG e MS; itens por FCID e por FCAS (`[[doc#Secao]]`, `[[::chat<n>]]`).
+- Invariantes: I1 (todas as MS de um chat = projecao do CH), I2 (PG de uma secao = montagem do SS com range), I3 (mesma seed = mesmo resultado; seeds 123 e 124 diferem), I4 (artifacts, artifact_edges, artifact_lineage, evolution_events, projections, references e resource_bindings identicos antes e depois de varias sinteses, inclusive as que falham).
+- Erros estritos com `position`: inexistente 404, invalido 422, DC e WS 422, tipo fora do kind 422 com `allowed`, item dividido 409 com candidatos.
+- Item substituido usa a versao atual e registra `evolvedFrom` no manifest.
+- Template `[[PG]] [[PG]] [[MS]]` em blocos compoe a view; inline para MS fica literal com `BLOCK_REFERENCE_INLINE`; expansao dentro do conteudo de um item traz `position` nos warnings e no manifest.
+- Random: `count` reduzido ao pool (`picked` e `poolSize`), pool vazio 422, `scope` restringe o pool, seed gerada pelo servidor e reproduzivel quando devolvida.
+- Teste da alternativa descartada (antes da implementacao): um DC novo contendo os PG de um documento perdeu a primeira frase, sem erro, depois que um desses PG foi dividido pelo Lab 04.
+- Mutacao M2 (sorteio ignora a seed): detectada por C11 e C12.
+- Mutacao M1 (pool sem o filtro `active`): inicialmente NAO detectada. O C14 usava `scope`, e um artefato substituido ja sai do pool por nao ter pai estrutural, entao o filtro de estado nunca era exercitado. Alem disso, a montagem segue o lineage e trocaria o MS sorteado pelo substituto, escondendo o defeito no manifest. O C14 foi reforcado (sorteio sem `scope` apos regenerar uma mensagem, verificando `poolSize` contra a contagem de MS ativas, ausencia de duplicatas e de `evolvedFrom`); a M1 passou a ser detectada, falhando em `poolSize` (5 contra 4 mensagens ativas). A primeira versao do teste, que so verificava a ausencia do FCID antigo no manifest, continuava passando sob a M1, o que confirma que o lineage mascarava o defeito.
+
+## Resultado esperado
+
+Todas as hipoteses do Lab 06 validadas por testes automatizados.
+
+## Conclusao
+
+Validado por implementacao e cobertura automatizada
+
+## Evidencias
+
+- `src/core/lab06Service.ts`, `src/core/lab06Schemas.ts`, `src/api/routes/lab06Routes.ts`.
+- `src/core/lab05Service.ts` (`normalizeTarget` exportada).
+- `src/tests/lab06.test.ts`.
+
+## Decisoes derivadas
+
+- ADR-011
+- ADR-012
+- ADR-013
+- ADR-014
+
+## Pendencias
+
+- Painel de sintese na UI (fora do escopo do Lab 06).
+- Persistir projecoes sinteticas (nomear, listar, reabrir) continua fora do escopo; exigiria decidir antes se a definicao referencia FCIDs ou guarda um instantaneo.
+- Cada item chama o Assembly Engine, que carrega o grafo inteiro: uma sintese de N itens carrega o grafo N vezes. Sem cache.
+- A reproducao por seed vale enquanto o pool nao muda; apos uma evolucao (Lab 04) a mesma seed pode sortear diferente.
+- Debitos herdados e fora do escopo: titulo do DC sempre "Untitled Document" e resolucao de `[[Diretorio]]` e `[[$Projeto]]` que ignora o nome.

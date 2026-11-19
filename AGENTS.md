@@ -40,4 +40,5 @@ Registrar decisões e experimentos relacionados a:
 - Lab 03 — FCAS Resolution
 - Lab 04 — Evolution & Lineage
 - Lab 05 — Context Assembly
+- Lab 06 — Synthetic Projection
 ```

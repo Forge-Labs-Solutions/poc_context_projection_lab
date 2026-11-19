@@ -5,6 +5,7 @@ import { registerLab02Routes } from "./routes/lab02Routes.js";
 import { registerLab03Routes } from "./routes/lab03Routes.js";
 import { registerLab04Routes } from "./routes/lab04Routes.js";
 import { registerLab05Routes } from "./routes/lab05Routes.js";
+import { registerLab06Routes } from "./routes/lab06Routes.js";
 import { registerUiRoutes } from "./routes/uiRoutes.js";
 
 export function buildApp(): FastifyInstance {
@@ -15,6 +16,7 @@ export function buildApp(): FastifyInstance {
   registerLab03Routes(app);
   registerLab04Routes(app);
   registerLab05Routes(app);
+  registerLab06Routes(app);
   registerUiRoutes(app);
 
   return app;

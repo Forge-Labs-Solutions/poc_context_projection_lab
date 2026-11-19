@@ -70,6 +70,7 @@ npm run dev
 - `GET /v1/lab04/references/:referenceId`
 - `POST /v1/lab05/assemble`
 - `POST /v1/lab05/expand`
+- `POST /v1/lab06/synthesize`
 
 Documentacao basica:
 - `docs/endpoints.md`
